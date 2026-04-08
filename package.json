@@ -1,0 +1,51 @@
+{
+  "name": "claude-stage",
+  "displayName": "Claude Stage",
+  "description": "Visualize Claude Code's thinking and actions as animated 2.5D figures",
+  "version": "0.1.0",
+  "publisher": "jjccy",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claude-stage.openStage",
+        "title": "Claude Stage: Open Stage"
+      },
+      {
+        "command": "claude-stage.clearStage",
+        "title": "Claude Stage: Clear Stage"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Stage",
+      "properties": {
+        "claudeStage.port": {
+          "type": "number",
+          "default": 7891,
+          "description": "Port for the local event server (used by Claude Code hooks)"
+        },
+        "claudeStage.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open the stage panel on startup"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

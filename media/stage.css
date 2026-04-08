@@ -1,0 +1,315 @@
+/* ============================================================
+   Claude Stage – 2.5D isometric environment
+   ============================================================ */
+
+:root {
+  --bg: #0d1117;
+  --ground: #161b22;
+  --ground-border: #30363d;
+  --tile-light: #1c2128;
+  --tile-dark: #161b22;
+  --accent-blue: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-yellow: #d29922;
+  --accent-red: #f85149;
+  --accent-purple: #bc8cff;
+  --text: #c9d1d9;
+  --text-dim: #484f58;
+  --shadow: rgba(0,0,0,0.5);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#stage {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ── Ground ── */
+#ground {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  perspective: 600px;
+}
+
+/* Isometric grid overlay */
+#ground::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.015) 25%, transparent 25%) -20px 0,
+    linear-gradient(225deg, rgba(255,255,255,0.015) 25%, transparent 25%) -20px 0,
+    linear-gradient(315deg, rgba(255,255,255,0.015) 25%, transparent 25%),
+    linear-gradient(45deg,  rgba(255,255,255,0.015) 25%, transparent 25%);
+  background-size: 40px 40px;
+  background-color: var(--ground);
+  transform: rotateX(30deg) translateY(-20%);
+  transform-origin: top center;
+}
+
+/* ── Figures Layer ── */
+#figures-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ── Figure Base ── */
+.figure {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  animation: figureAppear 0.3s ease-out;
+  transition: transform 0.5s ease, opacity 0.3s ease;
+}
+
+.figure .body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.figure .head {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  background: var(--bg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.figure .torso {
+  width: 16px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  background: var(--bg);
+  position: relative;
+}
+
+.figure .legs {
+  display: flex;
+  gap: 4px;
+}
+
+.figure .leg {
+  width: 6px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  background: var(--bg);
+}
+
+.figure .label {
+  font-size: 9px;
+  color: currentColor;
+  opacity: 0.8;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Shadow ── */
+.figure .shadow {
+  width: 28px;
+  height: 6px;
+  background: var(--shadow);
+  border-radius: 50%;
+  margin-top: -2px;
+  filter: blur(2px);
+}
+
+/* ── Bubble ── */
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--tile-light);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 9px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: currentColor;
+  animation: bubbleIn 0.2s ease-out;
+}
+
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  border-bottom: none;
+}
+
+/* ── Thought cloud (thinking) ── */
+.thought-bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  animation: pulse 1.2s ease-in-out infinite;
+  font-size: 16px;
+}
+
+/* ── Figure Colors by role ── */
+.figure.user    { color: var(--accent-blue); }
+.figure.claude  { color: var(--accent-purple); }
+.figure.agent   { color: var(--accent-green); }
+.figure.tool    { color: var(--accent-yellow); }
+.figure.system  { color: var(--accent-red); }
+
+/* ── Action Animations ── */
+.figure.thinking .head { animation: headBob 0.8s ease-in-out infinite; }
+.figure.searching .head { animation: lookAround 1s ease-in-out infinite; }
+.figure.writing .torso  { animation: writingMotion 0.5s ease-in-out infinite; }
+.figure.running .legs .leg { animation: walk 0.4s ease-in-out infinite alternate; }
+.figure.running .legs .leg:nth-child(2) { animation-delay: 0.2s; }
+.figure.waiting { opacity: 0.5; }
+.figure.spawning { animation: spawn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+/* ── Keyframes ── */
+@keyframes figureAppear {
+  from { opacity: 0; transform: translateY(10px) scale(0.8); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateX(-50%) scale(0.8) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+}
+
+@keyframes headBob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-3px); }
+}
+
+@keyframes lookAround {
+  0%, 100% { transform: rotate(-15deg); }
+  50%       { transform: rotate(15deg); }
+}
+
+@keyframes writingMotion {
+  0%, 100% { transform: skewX(0deg); }
+  50%       { transform: skewX(-5deg); }
+}
+
+@keyframes walk {
+  from { transform: skewX(-10deg) translateY(0); }
+  to   { transform: skewX(10deg) translateY(-2px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+  50%       { opacity: 0.6; transform: translateX(-50%) scale(0.9); }
+}
+
+@keyframes spawn {
+  0%   { opacity: 0; transform: scale(0) translateY(20px); }
+  60%  { transform: scale(1.15) translateY(-3px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ── Event Log ── */
+#events-log {
+  position: absolute;
+  bottom: 32px;
+  right: 8px;
+  width: 260px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  padding: 4px;
+  scrollbar-width: none;
+}
+
+#events-log::-webkit-scrollbar { display: none; }
+
+.log-entry {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-left: 2px solid var(--text-dim);
+  animation: logSlide 0.2s ease-out;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-entry.tool    { color: var(--accent-yellow); border-color: var(--accent-yellow); }
+.log-entry.agent   { color: var(--accent-green);  border-color: var(--accent-green); }
+.log-entry.user    { color: var(--accent-blue);   border-color: var(--accent-blue); }
+.log-entry.claude  { color: var(--accent-purple); border-color: var(--accent-purple); }
+.log-entry.error   { color: var(--accent-red);    border-color: var(--accent-red); }
+
+@keyframes logSlide {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Status Bar ── */
+#status-bar {
+  height: 24px;
+  background: var(--ground);
+  border-top: 1px solid var(--ground-border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+#status-icon {
+  font-size: 8px;
+  color: var(--text-dim);
+  transition: color 0.3s;
+}
+
+#status-icon.active { color: var(--accent-green); animation: pulse 1s infinite; }
+#status-icon.thinking { color: var(--accent-purple); animation: pulse 0.6s infinite; }
+#status-icon.error { color: var(--accent-red); }
+
+#status-text {
+  color: var(--text-dim);
+  transition: color 0.3s;
+}
