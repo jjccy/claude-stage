@@ -48,6 +48,10 @@ export class StagePanel {
     this.panel.webview.postMessage({ command: 'clear' });
   }
 
+  reload(): void {
+    this.panel.webview.html = this.getHtml();
+  }
+
   private getHtml(): string {
     const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'media');
     const cssUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, 'stage.css'));
