@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
 import { ClaudeEvent } from './eventServer';
 
 export class StagePanel {
@@ -69,11 +67,17 @@ export class StagePanel {
 <body>
   <div id="stage">
     <div id="ground"></div>
-    <div id="figures-layer"></div>
+    <div id="figures-layer">
+      <svg id="hierarchy-svg"></svg>
+    </div>
     <div id="events-log"></div>
     <div id="status-bar">
       <span id="status-icon">●</span>
       <span id="status-text">Waiting for Claude...</span>
+      <div id="token-counter">
+        <div id="token-bar-wrap"><div id="token-bar"></div></div>
+        <span id="token-count">—</span>
+      </div>
     </div>
   </div>
   <script src="${jsUri}"></script>

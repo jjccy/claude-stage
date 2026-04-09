@@ -253,17 +253,17 @@ body {
   position: absolute;
   bottom: 32px;
   right: 8px;
-  width: 260px;
-  max-height: 180px;
-  overflow-y: auto;
+  width: 220px;
   display: flex;
   flex-direction: column-reverse;
   gap: 2px;
-  padding: 4px;
-  scrollbar-width: none;
+  padding: 6px 6px 4px;
+  border-radius: 6px;
+  background: rgba(13, 17, 23, 0.85);
+  border: 1px solid rgba(48, 54, 61, 0.6);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
 }
-
-#events-log::-webkit-scrollbar { display: none; }
 
 .log-entry {
   font-size: 10px;
@@ -313,3 +313,56 @@ body {
   color: var(--text-dim);
   transition: color 0.3s;
 }
+
+/* ── Hierarchy SVG overlay ── */
+#hierarchy-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* ── Tool success / failure animations (applied to .body, not .figure,
+      so they don't conflict with the figure's positioning transform) ── */
+@keyframes successFlash {
+  0%   { filter: none; }
+  40%  { filter: drop-shadow(0 0 8px var(--accent-green)); }
+  100% { filter: none; }
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0);   filter: none; }
+  20%, 60%  { transform: translateX(-5px); filter: drop-shadow(0 0 6px var(--accent-red)); }
+  40%, 80%  { transform: translateX(5px);  filter: drop-shadow(0 0 6px var(--accent-red)); }
+}
+
+/* ── Token counter ── */
+#token-counter {
+  margin-left: auto;
+  display: none; /* shown once first token data arrives */
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+#token-bar-wrap {
+  width: 50px;
+  height: 3px;
+  background: var(--ground-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#token-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent-purple);
+  border-radius: 2px;
+  transition: width 0.5s ease, background-color 0.3s;
+}
+
+#token-bar.warning  { background: var(--accent-yellow); }
+#token-bar.critical { background: var(--accent-red); }

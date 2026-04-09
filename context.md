@@ -91,15 +91,27 @@ Alternatively, write a small helper script (`hook.js`) and call it from the hook
 
 ## Future Features
 
+- [x] **Tool success/failure** – Green flash (`.body` successFlash) / red shake (errorShake) on PostToolUse result; driven by `is_error` in `CLAUDE_TOOL_RESPONSE`
+- [x] **Agent hierarchy** – SVG overlay draws dashed lines from Claude to each spawned agent; updates on spawn and clears after agents fade out on `stop`
+- [x] **Token counter** – Gauge in status bar fills relative to 200k context window; accumulates across turns from `CLAUDE_USAGE_INPUT/OUTPUT_TOKENS` env vars in the `Stop` hook
+- [x] **Hook helper script** – `hooks/notify.js` with `buildEvent` / `sendEvent` exports; auto-deployed to `~/.claude/claude-stage-hook/notify.js` on extension activation
 - [ ] **Sprite sheets** – Replace CSS stick figures with pixel art sprites (isometric style like code-city)
 - [ ] **Camera pan** – Stage scrolls/pans as agents spread out
-- [ ] **Tool success/failure** – Green flash vs red shake on PostToolUse result
-- [ ] **Agent hierarchy** – Lines connecting Claude to spawned agents
 - [ ] **History replay** – Record session events and replay them
-- [ ] **Token counter** – Visual gauge for context usage
 - [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel
-- [ ] **Hook helper script** – A proper `hooks/notify.js` script instead of inline node one-liners
 - [ ] **Settings UI** – Port config, theme, figure density
+
+## Testing
+
+Run with `npm test`. 29 tests across 3 suites.
+
+| File | Covers |
+|------|--------|
+| `src/test/eventServer.test.ts` | HTTP server: start/stop, status codes (200/400/405/204), event emission, timestamp stamping |
+| `src/test/notify.test.js` | `buildEvent()`: correct shape for each event type, error/success detection, token env vars, graceful fallbacks |
+| `src/test/setupHooks.test.ts` | `setupHooks()`: port stamping, settings.json creation, idempotency, preservation of existing hooks and other settings keys |
+
+Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation.
 
 ## Design Decisions
 

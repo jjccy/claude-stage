@@ -8,6 +8,8 @@ export interface ClaudeEvent {
   params?: Record<string, unknown>;
   output?: unknown;
   text?: string;
+  success?: boolean;     // tool_result: false when is_error=true
+  tokens?: { input: number; output: number }; // stop: cumulative token usage
   timestamp: number;
 }
 
