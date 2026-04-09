@@ -1,8 +1,8 @@
 # Claude Stage
 
-A VS Code extension that visualizes Claude Code's activity as animated 2.5D figures on a stage.
+A VS Code extension that visualizes Claude Code's activity as animated pixel-art figures on a stage.
 
-Every action Claude takes — thinking, reading files, running commands, spawning agents, requesting permissions — becomes a little character doing something expressive.
+Every action Claude takes — thinking, reading files, running commands, spawning agents, requesting permissions — becomes a little character doing something expressive. Multiple Claude sessions appear as separate figures in their own zones.
 
 ![Claude Stage preview](media/preview.png)
 
@@ -37,7 +37,8 @@ No manual setup needed.
 | Read / Write / Edit | Claude figure | Tool emoji + filename in bubble |
 | Bash command | Claude figure | Walking legs animation |
 | Grep / Glob | Claude figure | Head pan (searching) |
-| Agent spawned | New agent figure | Spawn animation, fades on stop |
+| Agent spawned | New agent figure | Spawn animation; force layout spreads all agents |
+| Agent completes | Agent figure | Flash, idle briefly, then fades |
 | Permission needed | Claude figure | Raised hand, waiting state |
 | Response complete | Claude figure | Smile + ✓ Done |
 
@@ -49,7 +50,7 @@ npm install
 
 Press **F5** to launch the Extension Development Host. `tsc -watch` runs automatically as the pre-launch build task.
 
-Changes to `media/stage.js` or `media/stage.css` hot-reload the webview without restarting.
+Changes to `src/webview/**` hot-reload the webview without restarting.
 
 ## Configuration
 
