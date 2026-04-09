@@ -80,7 +80,7 @@ body {
   align-items: center;
   gap: 2px;
   animation: figureAppear 0.3s ease-out;
-  transition: transform 0.5s ease, opacity 0.3s ease;
+  transition: left 0.4s ease, top 0.4s ease, transform 0.5s ease, opacity 0.3s ease;
 }
 
 .sprite-wrap {

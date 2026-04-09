@@ -1,247 +1,14 @@
-// Claude Stage – pixel-art sprite animation engine
-// Receives events from the VS Code extension via postMessage
+/// <reference path="./sprite.ts" />
+/// <reference path="./force.ts" />
+
+// ── Claude Stage – main orchestration ────────────────────────────────────────
+// Receives postMessage events from the VS Code extension and animates
+// pixel-art figures on the stage.  SpriteRenderer, ANIM, and ForceLayout
+// are defined in sprite.ts / force.ts, concatenated before this file.
 
 (function () {
 
-  // ── Sprite system ─────────────────────────────────────────────────────────
-
-  const SCALE = 3;   // canvas px per sprite pixel
-  const SW    = 12;  // sprite width  in sprite-pixels
-  const SH    = 20;  // sprite height in sprite-pixels
-
-  const SKIN = '#FFDBA4';
-  const EYE  = '#2B2B2B';
-
-  interface Pal { b: string; d: string }
-
-  const PALS: Record<string, Pal> = {
-    user:   { b: '#4F9EFF', d: '#1F6FEB' },
-    claude: { b: '#BC8CFF', d: '#8B5CF6' },
-    agent:  { b: '#3FB950', d: '#238636' },
-  };
-
-  // 12-char rows per frame.
-  // . = transparent  s = skin  e = eye  b = body  d = dark body
-  const RAW: Record<string, string[]> = {
-
-    idle_0: [     // upright, eyes open
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'sseesssseess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '...bbbbbb...',
-      '..bbbbbbbb..',
-      '.bbbbbbbbbb.',
-      '.bbbbbbbbbb.',
-      '.bbbbbbbbbb.',
-      '..bbbbbbbb..',
-      '...bbbbbb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '..bbb..bbb..',
-    ],
-
-    idle_1: [     // blink (eyes closed)
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'ssssssssssss',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '...bbbbbb...',
-      '..bbbbbbbb..',
-      '.bbbbbbbbbb.',
-      '.bbbbbbbbbb.',
-      '.bbbbbbbbbb.',
-      '..bbbbbbbb..',
-      '...bbbbbb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '..bbb..bbb..',
-    ],
-
-    thinking_0: [ // left arm raised, body leans right
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'ssessssssess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '...bbbbbb...',
-      'bb.bbbbbbbb.',
-      'b..bbbbbbbb.',
-      'b..bbbbbbbb.',
-      '...bbbbbbbb.',
-      '....bbbbbb..',
-      '.....bbbb...',
-      '.....bb.bb..',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '....bbb..bbb',
-    ],
-
-    thinking_1: [ // arm slightly lower (wave effect)
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'ssessssssess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '...bbbbbb...',
-      'b..bbbbbbbb.',
-      'bb.bbbbbbbb.',
-      'b..bbbbbbbb.',
-      '...bbbbbbbb.',
-      '....bbbbbb..',
-      '.....bbbb...',
-      '.....bb.bb..',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '....bbb..bbb',
-    ],
-
-    working_0: [  // arms extended wide (lean forward)
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'sseesssseess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '..bbbbbbbb..',
-      '.bbbbbbbbbb.',
-      'bbbbbbbbbbbb',
-      'bbbbbbbbbbbb',
-      '.bbbbbbbbbb.',
-      '..bbbbbbbb..',
-      '...bbbbbb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '..bbb..bbb..',
-    ],
-
-    working_1: [  // arms at different row (pumping motion)
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'sseesssseess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '..bbbbbbbb..',
-      'bbbbbbbbbbbb',
-      '.bbbbbbbbbb.',
-      'bbbbbbbbbbbb',
-      '.bbbbbbbbbb.',
-      '..bbbbbbbb..',
-      '...bbbbbb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '...bb..bb...',
-      '..bbb..bbb..',
-    ],
-
-    waiting_0: [  // arms spread (shrug / waiting)
-      '..ssssssss..',
-      '.ssssssssss.',
-      'ssssssssssss',
-      'sseesssseess',
-      'ssssssssssss',
-      '.ssssssssss.',
-      '..ssssssss..',
-      '...bbbbbb...',
-      'b.bbbbbbbb.b',
-      'b.bbbbbbbb.b',
-      'b.bbbbbbbb.b',
-      '...bbbbbbbb.',
-      '....bbbbbb..',
-      '.....bbbb...',
-      '.....bb.bb..',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '.....bb..bb.',
-      '....bbb..bbb',
-    ],
-
-  };
-
-  type Pixel = string | null;
-  type Frame = Pixel[][];
-
-  function parseFrame(rows: string[], pal: Pal): Frame {
-    return rows.map(row => {
-      const r = row.padEnd(SW, '.').slice(0, SW);
-      return r.split('').map(c => {
-        switch (c) {
-          case 's': return SKIN;
-          case 'e': return EYE;
-          case 'b': return pal.b;
-          case 'd': return pal.d;
-          default:  return null;
-        }
-      });
-    });
-  }
-
-  class SpriteRenderer {
-    private frames: Map<string, Frame> = new Map();
-
-    constructor(role: string) {
-      const pal = PALS[role] ?? PALS['agent'];
-      for (const [key, raw] of Object.entries(RAW)) {
-        this.frames.set(key, parseFrame(raw, pal));
-      }
-    }
-
-    draw(ctx: CanvasRenderingContext2D, frameName: string): void {
-      ctx.clearRect(0, 0, SW * SCALE, SH * SCALE);
-      const frame = this.frames.get(frameName) ?? this.frames.get('idle_0')!;
-      for (let y = 0; y < frame.length; y++) {
-        for (let x = 0; x < frame[y].length; x++) {
-          const color = frame[y][x];
-          if (color) {
-            ctx.fillStyle = color;
-            ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
-          }
-        }
-      }
-    }
-  }
-
-  // Animation schedule: state → frames to cycle + ms per frame
-  const ANIM: Record<string, { frames: string[]; ms: number }> = {
-    idle:      { frames: ['idle_0','idle_0','idle_0','idle_0','idle_1'], ms: 700 },
-    thinking:  { frames: ['thinking_0', 'thinking_1'], ms: 500 },
-    searching: { frames: ['working_0',  'working_1'],  ms: 350 },
-    writing:   { frames: ['working_0',  'working_1'],  ms: 350 },
-    running:   { frames: ['working_0',  'working_1'],  ms: 260 },
-    spawning:  { frames: ['idle_0'],                   ms: 600 },
-    waiting:   { frames: ['waiting_0'],                ms: 1000 },
-  };
-
-  // ── Stage setup ───────────────────────────────────────────────────────────
+  // ── Types ─────────────────────────────────────────────────────────────────
 
   interface Slot { x: number; y: number }
 
@@ -255,37 +22,46 @@
     frameIdx: number;
     timer?:   number;
     bubble?:  HTMLElement | null;
+    slot:     Slot;   // stored at creation; used for SVG line drawing
+    prompt?:  string; // agent task prompt — used to match agent_done events
   }
 
   interface StageEvent {
-    type:     string;
-    tool?:    string;
-    phase?:   string;
-    params?:  Record<string, unknown>;
-    text?:    string;
-    success?: boolean;
-    tokens?:  { input: number; output: number };
+    type:       string;
+    sessionId?: string;
+    tool?:      string;
+    phase?:     string;
+    params?:    Record<string, unknown>;
+    text?:      string;
+    success?:   boolean;
+    tokens?:    { input: number; output: number };
   }
 
-  const figuresLayer = document.getElementById('figures-layer')!;
-  const eventsLog    = document.getElementById('events-log')!;
-  const statusIcon   = document.getElementById('status-icon')!;
-  const statusText   = document.getElementById('status-text')!;
+  interface Session {
+    claudeId:    string;
+    agentCount:  number;
+    lastActive:  number;
+    slotIndex:   number;
+    agentLayout: ForceLayout;
+  }
 
-  const figures = new Map<string, Figure>();
+  // ── Constants ─────────────────────────────────────────────────────────────
 
-  const SLOTS: Record<string, Slot> = {
-    user:   { x: 15, y: 55 },
-    claude: { x: 45, y: 45 },
-    agent0: { x: 65, y: 40 },
-    agent1: { x: 72, y: 55 },
-    agent2: { x: 78, y: 40 },
-  };
+  // Vertical bands for up to 3 concurrent Claude instances.
+  const CLAUDE_SLOTS: Slot[] = [
+    { x: 45, y: 45 },  // Band 0 — centre (default)
+    { x: 45, y: 78 },  // Band 1 — lower
+    { x: 45, y: 18 },  // Band 2 — upper
+  ];
 
-  let agentCount        = 0;
-  let totalInputTokens  = 0;
-  let totalOutputTokens = 0;
-  const MAX_TOKENS      = 200000;
+  const USER_SLOT: Slot = { x: 15, y: 55 };
+
+  // Agent zone relative to Claude: centre 24% to the right, ±15% wide, ±30% tall.
+  const AGENT_ZONE_DX = 24;
+  const AGENT_ZONE_HW = 15;
+  const AGENT_ZONE_HH = 30;
+
+  const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
 
   const TOOL_EMOJI: Record<string, string> = {
     Read: '📄', Write: '✍️', Edit: '✏️', Bash: '⚡', Grep: '🔍',
@@ -299,6 +75,25 @@
     WebFetch: 'searching', WebSearch: 'searching',
   };
 
+  // ── DOM references ────────────────────────────────────────────────────────
+
+  const figuresLayer = document.getElementById('figures-layer')!;
+  const eventsLog    = document.getElementById('events-log')!;
+  const statusIcon   = document.getElementById('status-icon')!;
+  const statusText   = document.getElementById('status-text')!;
+
+  // ── State ─────────────────────────────────────────────────────────────────
+
+  const figures  = new Map<string, Figure>();
+  const sessions = new Map<string, Session>();
+
+  let nextSlotIndex     = 0;
+  const freeSlots: number[] = [];
+
+  let totalInputTokens  = 0;
+  let totalOutputTokens = 0;
+  const MAX_TOKENS      = 200_000;
+
   // ── Figure management ─────────────────────────────────────────────────────
 
   function buildFigure(id: string, role: string, label: string): HTMLElement {
@@ -306,13 +101,13 @@
     el.className  = `figure ${role}`;
     el.dataset.id = id;
 
-    const wrap = document.createElement('div');
+    const wrap   = document.createElement('div');
     wrap.className = 'sprite-wrap';
 
-    const canvas = document.createElement('canvas');
+    const canvas   = document.createElement('canvas');
     canvas.className = 'sprite';
-    canvas.width  = SW * SCALE;
-    canvas.height = SH * SCALE;
+    canvas.width   = SW * SCALE;
+    canvas.height  = SH * SCALE;
     wrap.appendChild(canvas);
 
     const shadow = document.createElement('div');
@@ -328,45 +123,60 @@
     return el;
   }
 
-  function placeFigure(el: HTMLElement, slotKey: string): void {
-    const slot = SLOTS[slotKey] ?? { x: 50, y: 50 };
+  function placeFigure(el: HTMLElement, slot: Slot): void {
     el.style.left      = slot.x + '%';
     el.style.top       = slot.y + '%';
     el.style.transform = 'translate(-50%, -100%)';
   }
 
-  function ensureFigure(id: string, role: string, label: string, slotKey: string): Figure {
+  /** Smoothly slide an existing figure to a new slot (CSS left/top transition). */
+  function moveFigure(fig: Figure, slot: Slot): void {
+    fig.slot          = slot;
+    fig.el.style.left = slot.x + '%';
+    fig.el.style.top  = slot.y + '%';
+  }
+
+  function ensureFigure(id: string, role: string, label: string, slot: Slot): Figure {
     if (!figures.has(id)) {
       const el       = buildFigure(id, role, label);
       const canvas   = el.querySelector<HTMLCanvasElement>('.sprite')!;
       const ctx      = canvas.getContext('2d')!;
       const renderer = new SpriteRenderer(role);
-      placeFigure(el, slotKey);
+      placeFigure(el, slot);
       figuresLayer.appendChild(el);
-      const fig: Figure = { el, canvas, ctx, renderer, role, state: 'idle', frameIdx: 0 };
+      const fig: Figure = { el, canvas, ctx, renderer, role, state: 'idle', frameIdx: 0, slot };
       figures.set(id, fig);
       startAnim(fig);
     }
     return figures.get(id)!;
   }
 
-  // ── Animation loop ────────────────────────────────────────────────────────
+  function removeFigureAnimated(id: string, delay = 0): void {
+    const fig = figures.get(id);
+    if (!fig) return;
+    setTimeout(() => {
+      fig.el.style.animation = 'fadeOut 0.5s forwards';
+      setTimeout(() => {
+        if (fig.timer !== undefined) clearTimeout(fig.timer);
+        fig.el.remove();
+        figures.delete(id);
+      }, 500);
+    }, delay);
+  }
+
+  // ── Animation ─────────────────────────────────────────────────────────────
 
   function startAnim(fig: Figure): void {
     if (fig.timer !== undefined) clearTimeout(fig.timer);
-    const sched = ANIM[fig.state] ?? ANIM['idle'];
+    const sched  = ANIM[fig.state] ?? ANIM['idle'];
     fig.frameIdx = 0;
-
     function tick(): void {
-      const name = sched.frames[fig.frameIdx % sched.frames.length];
-      fig.renderer.draw(fig.ctx, name);
+      fig.renderer.draw(fig.ctx, sched.frames[fig.frameIdx % sched.frames.length]);
       fig.frameIdx++;
       fig.timer = window.setTimeout(tick, sched.ms);
     }
     tick();
   }
-
-  // ── State transitions ─────────────────────────────────────────────────────
 
   function setState(fig: Figure, state: string): void {
     fig.state = state;
@@ -390,7 +200,7 @@
     fig.bubble = null;
   }
 
-  // ── Flash on tool result ──────────────────────────────────────────────────
+  // ── Flash ─────────────────────────────────────────────────────────────────
 
   function flashFigure(fig: Figure, success: boolean): void {
     const wrap = fig.el.querySelector<HTMLElement>('.sprite-wrap')!;
@@ -400,42 +210,102 @@
     setTimeout(() => { wrap.style.animation = ''; }, 700);
   }
 
-  // ── Hierarchy lines (SVG overlay) ─────────────────────────────────────────
+  // ── Session lifecycle ─────────────────────────────────────────────────────
+
+  function sessionLabel(sessionId: string): string {
+    return sessionId.replace(/.*[\\/]/, '') || 'Claude';
+  }
+
+  function getOrCreateSession(sessionId: string): Session {
+    if (!sessions.has(sessionId)) {
+      const slotIndex  = freeSlots.length > 0 ? freeSlots.pop()! : nextSlotIndex++;
+      const claudeSlot = CLAUDE_SLOTS[slotIndex % CLAUDE_SLOTS.length];
+      const claudeId   = `claude:${sessionId}`;
+      ensureFigure(claudeId, 'claude', sessionLabel(sessionId), claudeSlot);
+      const agentLayout = new ForceLayout(
+        claudeSlot.x + AGENT_ZONE_DX,
+        claudeSlot.y,
+        AGENT_ZONE_HW,
+        AGENT_ZONE_HH,
+      );
+      sessions.set(sessionId, { claudeId, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout });
+    }
+    return sessions.get(sessionId)!;
+  }
+
+  function touchSession(session: Session): void {
+    session.lastActive = Date.now();
+  }
+
+  function removeSession(sessionId: string): void {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    figures.forEach((_, id) => {
+      if (id.startsWith(`agent:${sessionId}:`)) removeFigureAnimated(id);
+    });
+    removeFigureAnimated(session.claudeId);
+    freeSlots.push(session.slotIndex);
+    sessions.delete(sessionId);
+    setTimeout(() => updateHierarchyLines(), 600);
+  }
+
+  // Inactivity cleanup: every minute, remove sessions idle >10 min, keep ≥1.
+  setInterval(() => {
+    if (sessions.size <= 1) return;
+    const now     = Date.now();
+    const expired = [...sessions.entries()]
+      .filter(([, s]) => now - s.lastActive > INACTIVITY_MS)
+      .map(([id]) => id)
+      .slice(0, sessions.size - 1);
+    expired.forEach(id => {
+      addLog(`TIMEOUT: ${sessionLabel(id)} removed (10 min idle)`, 'error');
+      removeSession(id);
+    });
+  }, 60_000);
+
+  // ── Hierarchy lines ───────────────────────────────────────────────────────
+
+  // Figures are anchored bottom-centre (translate(-50%,-100%)).
+  // Sprite centre is above the anchor by: label + shadow + gap (≈22px) + half-sprite.
+  const SPRITE_BELOW = 22; // px below sprite canvas (shadow + label + gaps)
+
+  function slotCenter(slot: Slot): { x: number; y: number } {
+    const W = figuresLayer.offsetWidth;
+    const H = figuresLayer.offsetHeight;
+    return {
+      x: (slot.x / 100) * W,
+      y: (slot.y / 100) * H - SPRITE_BELOW - (SH * SCALE) / 2,
+    };
+  }
 
   function updateHierarchyLines(): void {
     const svg = document.getElementById('hierarchy-svg');
     if (!svg) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    const claudeFig = figures.get('claude');
-    if (!claudeFig) return;
+    sessions.forEach((session, sessionId) => {
+      const claudeFig = figures.get(session.claudeId);
+      if (!claudeFig) return;
 
-    let hasAgents = false;
-    figures.forEach((_, id) => { if (id.startsWith('agent')) hasAgents = true; });
-    if (!hasAgents) return;
+      let hasAgents = false;
+      figures.forEach((_, id) => { if (id.startsWith(`agent:${sessionId}:`)) hasAgents = true; });
+      if (!hasAgents) return;
 
-    const layerRect  = figuresLayer.getBoundingClientRect();
-    const claudeWrap = claudeFig.el.querySelector<HTMLElement>('.sprite-wrap')!;
-    const cr         = claudeWrap.getBoundingClientRect();
-    const cx         = cr.left - layerRect.left + cr.width  / 2;
-    const cy         = cr.top  - layerRect.top  + cr.height / 2;
+      const cc = slotCenter(claudeFig.slot);
 
-    figures.forEach((fig, id) => {
-      if (!id.startsWith('agent')) return;
-      const wrap = fig.el.querySelector<HTMLElement>('.sprite-wrap')!;
-      const ar   = wrap.getBoundingClientRect();
-      const ax   = ar.left - layerRect.left + ar.width  / 2;
-      const ay   = ar.top  - layerRect.top  + ar.height / 2;
-
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', String(cx));
-      line.setAttribute('y1', String(cy));
-      line.setAttribute('x2', String(ax));
-      line.setAttribute('y2', String(ay));
-      line.setAttribute('stroke', 'rgba(63, 185, 80, 0.45)');
-      line.setAttribute('stroke-width', '1.5');
-      line.setAttribute('stroke-dasharray', '5 3');
-      svg.appendChild(line);
+      figures.forEach((fig, id) => {
+        if (!id.startsWith(`agent:${sessionId}:`)) return;
+        const ac   = slotCenter(fig.slot);
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', String(cc.x));
+        line.setAttribute('y1', String(cc.y));
+        line.setAttribute('x2', String(ac.x));
+        line.setAttribute('y2', String(ac.y));
+        line.setAttribute('stroke', 'rgba(63, 185, 80, 0.45)');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-dasharray', '5 3');
+        svg.appendChild(line);
+      });
     });
   }
 
@@ -447,7 +317,6 @@
     const bar     = document.getElementById('token-bar');
     const label   = document.getElementById('token-count');
     if (!counter || !bar || !label) return;
-
     counter.style.display = 'flex';
     const pct       = Math.min((total / MAX_TOKENS) * 100, 100);
     bar.style.width = pct + '%';
@@ -455,7 +324,7 @@
     bar.className   = pct > 80 ? 'critical' : pct > 60 ? 'warning' : '';
   }
 
-  // ── Log ───────────────────────────────────────────────────────────────────
+  // ── Log & status bar ──────────────────────────────────────────────────────
 
   function addLog(text: string, type = ''): void {
     const entry = document.createElement('div');
@@ -471,120 +340,9 @@
       .map(n => String(n).padStart(2, '0')).join(':');
   }
 
-  // ── Status bar ────────────────────────────────────────────────────────────
-
   function setStatus(text: string, state = ''): void {
     statusText.textContent = text;
     statusIcon.className   = state;
-  }
-
-  // ── Event handler ─────────────────────────────────────────────────────────
-
-  function handleEvent(event: StageEvent): void {
-    switch (event.type) {
-
-      case 'user_prompt': {
-        const user   = ensureFigure('user',   'user',   'User',   'user');
-        const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
-        setState(user, 'idle');
-        showBubble(user, truncate(event.text ?? 'Request', 30));
-        setState(claude, 'thinking');
-        showBubble(claude, '...', true);
-        setStatus('User sent a request', 'active');
-        addLog(`USER: ${truncate(event.text ?? '', 40)}`, 'user');
-        setTimeout(() => clearBubble(user), 3000);
-        break;
-      }
-
-      case 'thinking': {
-        const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
-        setState(claude, 'thinking');
-        showBubble(claude, event.text ? truncate(event.text, 25) : '💭', true);
-        setStatus('Claude is thinking...', 'thinking');
-        addLog(`THINKING: ${truncate(event.text ?? '', 40)}`, 'claude');
-        break;
-      }
-
-      case 'tool_use': {
-        const tool   = event.tool ?? 'Unknown';
-        const emoji  = TOOL_EMOJI[tool]  ?? TOOL_EMOJI['default'];
-        const action = TOOL_ACTION[tool] ?? 'running';
-        const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
-
-        if (tool === 'Agent') {
-          const agentId = `agent${agentCount}`;
-          const slotKey = `agent${agentCount % 3}`;
-          agentCount++;
-          const agent = ensureFigure(agentId, 'agent', `Agent ${agentCount}`, slotKey);
-          setState(agent, 'spawning');
-          setTimeout(() => { setState(agent, 'thinking'); updateHierarchyLines(); }, 600);
-          showBubble(claude, `${emoji} Spawning agent`);
-          setStatus(`Spawning agent #${agentCount}`, 'active');
-          addLog(`AGENT: spawning #${agentCount}`, 'agent');
-        } else {
-          setState(claude, action);
-          const param = getToolParam(tool, event.params);
-          showBubble(claude, `${emoji} ${param}`);
-          setStatus(`${tool}: ${param}`, 'active');
-          addLog(`TOOL: ${tool} ${param}`, 'tool');
-        }
-        break;
-      }
-
-      case 'tool_result': {
-        const claude  = ensureFigure('claude', 'claude', 'Claude', 'claude');
-        const success = event.success !== false;
-        flashFigure(claude, success);
-        setState(claude, 'thinking');
-        clearBubble(claude);
-        setStatus(
-          success ? 'Processing result...' : `Error in ${event.tool ?? 'tool'}`,
-          success ? 'thinking' : 'error'
-        );
-        addLog(`${success ? 'DONE' : 'ERR'}: ${event.tool ?? 'tool'}`, success ? 'tool' : 'error');
-        break;
-      }
-
-      case 'permission': {
-        const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
-        setState(claude, 'waiting');
-        showBubble(claude, '⚠️ Permission needed');
-        setStatus('Waiting for permission...', 'error');
-        addLog(`PERMISSION: ${event.text ?? event.tool ?? ''}`, 'error');
-        break;
-      }
-
-      case 'stop': {
-        const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
-        setState(claude, 'idle');
-        showBubble(claude, '✓ Done');
-        setStatus('Done', '');
-        addLog('STOP: response complete', 'claude');
-        setTimeout(() => clearBubble(claude), 2500);
-
-        if (event.tokens) {
-          totalInputTokens  += event.tokens.input;
-          totalOutputTokens += event.tokens.output;
-          updateTokenGauge();
-        }
-
-        figures.forEach((fig, id) => {
-          if (id.startsWith('agent')) {
-            setTimeout(() => {
-              fig.el.style.animation = 'fadeOut 0.5s forwards';
-              setTimeout(() => {
-                if (fig.timer !== undefined) clearTimeout(fig.timer);
-                fig.el.remove();
-                figures.delete(id);
-              }, 500);
-            }, 1000);
-          }
-        });
-        setTimeout(() => updateHierarchyLines(), 1600);
-        agentCount = 0;
-        break;
-      }
-    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -599,11 +357,172 @@
       const p = (params['file_path'] ?? params['path'] ?? '') as string;
       return truncate(p.replace(/.*[\\/]/, ''), 25);
     }
-    if (tool === 'Bash')  return truncate(String(params['command'] ?? ''), 25);
-    if (tool === 'Grep')  return truncate(String(params['pattern'] ?? ''), 25);
-    if (tool === 'Glob')  return truncate(String(params['pattern'] ?? ''), 25);
+    if (tool === 'Bash') return truncate(String(params['command'] ?? ''), 25);
+    if (tool === 'Grep') return truncate(String(params['pattern'] ?? ''), 25);
+    if (tool === 'Glob') return truncate(String(params['pattern'] ?? ''), 25);
     const first = Object.values(params)[0];
     return first != null ? truncate(String(first), 25) : '';
+  }
+
+  // ── Event handler ─────────────────────────────────────────────────────────
+
+  function handleEvent(event: StageEvent): void {
+    const sid     = event.sessionId ?? 'default';
+    const session = getOrCreateSession(sid);
+    touchSession(session);
+    const claude  = figures.get(session.claudeId)!;
+    const sLabel  = sessionLabel(sid);
+
+    switch (event.type) {
+
+      case 'user_prompt': {
+        // Clear agents from the previous turn before starting the new one.
+        figures.forEach((_, id) => {
+          if (id.startsWith(`agent:${sid}:`)) removeFigureAnimated(id);
+        });
+        session.agentLayout.clear();
+        session.agentCount = 0;
+        setTimeout(() => updateHierarchyLines(), 600);
+
+        const user = ensureFigure('user', 'user', 'User', USER_SLOT);
+        setState(user, 'idle');
+        showBubble(user, truncate(event.text ?? 'Request', 30));
+        setState(claude, 'thinking');
+        showBubble(claude, '...', true);
+        setStatus(`[${sLabel}] User sent a request`, 'active');
+        addLog(`USER → ${sLabel}: ${truncate(event.text ?? '', 40)}`, 'user');
+        setTimeout(() => clearBubble(user), 3000);
+        break;
+      }
+
+      case 'thinking': {
+        setState(claude, 'thinking');
+        showBubble(claude, event.text ? truncate(event.text, 25) : '💭', true);
+        setStatus(`[${sLabel}] Thinking...`, 'thinking');
+        addLog(`THINKING [${sLabel}]: ${truncate(event.text ?? '', 40)}`, 'claude');
+        break;
+      }
+
+      case 'tool_use': {
+        const tool   = event.tool ?? 'Unknown';
+        const emoji  = TOOL_EMOJI[tool]  ?? TOOL_EMOJI['default'];
+        const action = TOOL_ACTION[tool] ?? 'running';
+
+        if (tool === 'Agent') {
+          const agentIdx = session.agentCount;
+          session.agentCount++;
+
+          // Force layout: add item, re-settle, redistribute all existing agents.
+          session.agentLayout.add();
+          const positions = session.agentLayout.positions();
+
+          for (let i = 0; i < agentIdx; i++) {
+            const existing = figures.get(`agent:${sid}:${i}`);
+            if (existing) moveFigure(existing, positions[i]);
+          }
+
+          // Spawn new agent at its settled position; tag it with its task prompt
+          // so agent_done can match the right figure when agents complete out of order.
+          const agentId = `agent:${sid}:${agentIdx}`;
+          const agent   = ensureFigure(agentId, 'agent', `Agent ${session.agentCount}`, positions[agentIdx]);
+          if (event.params?.['prompt']) agent.prompt = String(event.params['prompt']).slice(0, 300);
+          setState(agent, 'spawning');
+          setTimeout(() => { setState(agent, 'thinking'); updateHierarchyLines(); }, 600);
+
+          showBubble(claude, `${emoji} Spawning agent`);
+          setStatus(`[${sLabel}] Spawning agent #${session.agentCount}`, 'active');
+          addLog(`AGENT [${sLabel}]: spawning #${session.agentCount}`, 'agent');
+
+        } else {
+          setState(claude, action);
+          const param = getToolParam(tool, event.params);
+          showBubble(claude, `${emoji} ${param}`);
+          setStatus(`[${sLabel}] ${tool}: ${param}`, 'active');
+          addLog(`TOOL [${sLabel}]: ${tool} ${param}`, 'tool');
+        }
+        break;
+      }
+
+      case 'tool_result': {
+        const success = event.success !== false;
+        flashFigure(claude, success);
+        setState(claude, 'thinking');
+        clearBubble(claude);
+        setStatus(
+          success ? `[${sLabel}] Processing result...` : `[${sLabel}] Error in ${event.tool ?? 'tool'}`,
+          success ? 'thinking' : 'error'
+        );
+        addLog(`${success ? 'DONE' : 'ERR'} [${sLabel}]: ${event.tool ?? 'tool'}`, success ? 'tool' : 'error');
+        break;
+      }
+
+      case 'permission': {
+        setState(claude, 'waiting');
+        showBubble(claude, '⚠️ Permission needed');
+        setStatus(`[${sLabel}] Waiting for permission...`, 'error');
+        addLog(`PERMISSION [${sLabel}]: ${event.text ?? event.tool ?? ''}`, 'error');
+        break;
+      }
+
+      case 'agent_done': {
+        // An Agent tool call completed — show result briefly, then remove the figure.
+        const success = event.success !== false;
+        flashFigure(claude, success);
+        setState(claude, 'thinking');   // parent is still processing the result
+        // Match by task prompt first (accurate when agents complete out of order),
+        // fall back to the first non-idle agent for this session.
+        let doneId = '';
+        if (event.text) {
+          figures.forEach((fig, id) => {
+            if (!doneId && id.startsWith(`agent:${sid}:`) && fig.prompt === event.text && fig.state !== 'idle') {
+              doneId = id;
+            }
+          });
+        }
+        if (!doneId) {
+          figures.forEach((fig, id) => {
+            if (!doneId && id.startsWith(`agent:${sid}:`) && fig.state !== 'idle') doneId = id;
+          });
+        }
+        if (doneId) {
+          const fig = figures.get(doneId)!;
+          setState(fig, 'idle');
+          showBubble(fig, success ? '✓' : '✗');
+          setTimeout(() => {
+            removeFigureAnimated(doneId);
+            setTimeout(() => updateHierarchyLines(), 600); // after fade completes
+          }, 1200);
+        }
+        addLog(`AGENT DONE [${sLabel}]: ${success ? 'ok' : 'error'}`, 'agent');
+        break;
+      }
+
+      case 'stop': {
+        setState(claude, 'idle');
+
+        // Sub-agents fire their own Stop events while the parent is still running.
+        // Only announce completion when no agents are still in an active state.
+        let hasActiveAgents = false;
+        figures.forEach((fig, id) => {
+          if (id.startsWith(`agent:${sid}:`) && fig.state !== 'idle') hasActiveAgents = true;
+        });
+
+        if (!hasActiveAgents) {
+          showBubble(claude, '✓ Done');
+          setStatus(`[${sLabel}] Done`, '');
+          addLog(`STOP [${sLabel}]: response complete`, 'claude');
+          setTimeout(() => clearBubble(claude), 2500);
+
+          if (event.tokens) {
+            totalInputTokens  += event.tokens.input;
+            totalOutputTokens += event.tokens.output;
+            updateTokenGauge();
+          }
+        }
+        // Agents persist until the next user_prompt — don't remove them here.
+        break;
+      }
+    }
   }
 
   // ── VS Code message listener ──────────────────────────────────────────────
@@ -618,10 +537,12 @@
         fig.el.remove();
       });
       figures.clear();
+      sessions.clear();
+      nextSlotIndex    = 0;
+      freeSlots.length = 0;
       const svg = document.getElementById('hierarchy-svg');
       if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
       eventsLog.innerHTML     = '';
-      agentCount              = 0;
       totalInputTokens        = 0;
       totalOutputTokens       = 0;
       const counter = document.getElementById('token-counter');

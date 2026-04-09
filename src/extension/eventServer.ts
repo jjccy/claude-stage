@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 
 export interface ClaudeEvent {
   type: 'tool_use' | 'tool_result' | 'thinking' | 'user_prompt' | 'stop' | 'permission';
+  sessionId?: string;    // process.cwd() of the Claude instance that fired the hook
   tool?: string;         // Read, Edit, Bash, Grep, Glob, Agent, Write, etc.
   phase?: 'pre' | 'post';
   params?: Record<string, unknown>;

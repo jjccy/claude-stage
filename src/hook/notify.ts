@@ -14,6 +14,7 @@ export interface HookData {
 export interface ClaudeStageEvent {
   type:       string;
   timestamp:  number;
+  sessionId:  string;
   tool?:      string;
   phase?:     string;
   params?:    Record<string, unknown>;
@@ -23,7 +24,9 @@ export interface ClaudeStageEvent {
 }
 
 /**
- * Build a ClaudeStage event from the hook type and the parsed stdin JSON.
+ * Build a ClaudeStageEvent from the hook type and the parsed stdin JSON.
+ * Returns null when the event should be silently dropped (e.g. system-injected
+ * prompts that Claude Code sends internally but that are not real user input).
  *
  * stdin shapes (from Claude Code):
  *   PreToolUse:       { tool_name, tool_input, ... }
@@ -31,8 +34,8 @@ export interface ClaudeStageEvent {
  *   UserPromptSubmit: { prompt, ... }
  *   Stop:             { transcript_path, ... }
  */
-export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent {
-  const event: ClaudeStageEvent = { type, timestamp: Date.now() };
+export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent | null {
+  const event: ClaudeStageEvent = { type, timestamp: Date.now(), sessionId: process.cwd() };
 
   if (type === 'tool_use') {
     event.tool   = hookData.tool_name;
@@ -40,12 +43,31 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent {
     event.params = hookData.tool_input ?? {};
 
   } else if (type === 'tool_result') {
-    event.tool  = hookData.tool_name;
-    event.phase = 'post';
-    const resp  = hookData.tool_response;
-    event.success = !resp || (resp.is_error !== true && resp.success !== false);
+    const toolName = hookData.tool_name;
+    const resp     = hookData.tool_response;
+    const success  = !resp || (resp.is_error !== true && resp.success !== false);
+
+    if (toolName === 'Agent') {
+      // Agent completion gets its own event type so the webview can animate
+      // the individual agent figure to idle rather than just flashing Claude.
+      event.type    = 'agent_done';
+      event.success = success;
+      // Include the task prompt so the webview can match the exact figure
+      // even when multiple agents complete out of order.
+      const prompt = hookData.tool_input?.['prompt'];
+      if (prompt != null) event.text = String(prompt).slice(0, 300);
+    } else {
+      event.tool    = toolName;
+      event.phase   = 'post';
+      event.success = success;
+    }
 
   } else if (type === 'user_prompt') {
+    const text = (hookData.prompt ?? '').trim();
+    // System-generated inputs (sub-agent tasks, IDE context injections) always
+    // start with XML tags like <task> or <ide_opened_file>.  Drop them — they
+    // are not real user messages and would appear as false USER → ... entries.
+    if (/^<[a-zA-Z_]/.test(text)) return null;
     event.text = hookData.prompt ?? '';
 
   } else if (type === 'stop') {
@@ -106,7 +128,8 @@ if (require.main === module) {
     process.stdin.on('end', () => {
       let hookData: HookData = {};
       try { hookData = JSON.parse(raw) as HookData; } catch {}
-      sendEvent(buildEvent(type, hookData), PORT);
+      const event = buildEvent(type, hookData);
+      if (event) sendEvent(event, PORT);
     });
   }
 }
