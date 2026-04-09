@@ -27,14 +27,15 @@
   }
 
   interface StageEvent {
-    type:       string;
-    sessionId?: string;
-    tool?:      string;
-    phase?:     string;
-    params?:    Record<string, unknown>;
-    text?:      string;
-    success?:   boolean;
-    tokens?:    { input: number; output: number };
+    type:        string;
+    sessionId?:  string;
+    tool?:       string;
+    phase?:      string;
+    params?:     Record<string, unknown>;
+    text?:       string;
+    success?:    boolean;
+    tokens?:     { input: number; output: number };
+    notifType?:  string;
   }
 
   interface Session {
@@ -457,10 +458,49 @@
       }
 
       case 'permission': {
+        // Fires via Notification hook (notification_type: permission_prompt |
+        // elicitation_dialog) — Claude is waiting for user approval.
         setState(claude, 'waiting');
-        showBubble(claude, '⚠️ Permission needed');
-        setStatus(`[${sLabel}] Waiting for permission...`, 'error');
-        addLog(`PERMISSION [${sLabel}]: ${event.text ?? event.tool ?? ''}`, 'error');
+        showBubble(claude, `⚠️ ${event.text ?? 'Permission needed'}`);
+        setStatus(`[${sLabel}] Waiting for permission…`, 'error');
+        addLog(`PERM [${sLabel}]: ${event.text ?? ''}`, 'error');
+        break;
+      }
+
+      case 'notification': {
+        // Other Notification hook types (e.g. auth_success).
+        const icon = event.notifType === 'auth_success' ? '🔑' : '💬';
+        showBubble(claude, `${icon} ${truncate(event.text ?? 'Notification', 32)}`);
+        setStatus(`[${sLabel}] ${truncate(event.text ?? 'Notification', 45)}`, 'active');
+        addLog(`NOTIFY [${sLabel}]: ${truncate(event.text ?? '', 50)}`, 'claude');
+        setTimeout(() => clearBubble(claude), 3000);
+        break;
+      }
+
+      case 'session_start': {
+        // SessionStart hook fires when a Claude session begins (startup, resume,
+        // context compact, or /clear).  Ensure the figure exists and wave hello.
+        const src      = event.text ?? 'startup';
+        const greeting = src === 'resume'  ? '↩ Resumed'
+                       : src === 'compact' ? '📦 Compacted'
+                       : src === 'clear'   ? '🗑 Cleared'
+                       :                    '👋 Ready';
+        setState(claude, 'thinking');
+        showBubble(claude, greeting);
+        setStatus(`[${sLabel}] Session ${src}`, '');
+        addLog(`SESSION [${sLabel}]: ${src}`, 'claude');
+        setTimeout(() => { setState(claude, 'idle'); clearBubble(claude); }, 2500);
+        break;
+      }
+
+      case 'stop_failure': {
+        // StopFailure hook fires when the response was cut short by an error
+        // (rate limit, billing, auth failure, etc.).
+        setState(claude, 'waiting');
+        showBubble(claude, `⚠️ ${event.text ? truncate(event.text, 30) : 'Stopped with error'}`);
+        setStatus(`[${sLabel}] Stop error`, 'error');
+        addLog(`STOP ERR [${sLabel}]: ${truncate(event.text ?? 'failed', 50)}`, 'error');
+        setTimeout(() => { setState(claude, 'idle'); clearBubble(claude); }, 5000);
         break;
       }
 

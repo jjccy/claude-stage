@@ -4,23 +4,42 @@ import * as fs   from 'fs';
 const PORT = 7891;
 
 export interface HookData {
-  tool_name?:      string;
-  tool_input?:     Record<string, unknown>;
-  tool_response?:  { is_error?: boolean; success?: boolean; [key: string]: unknown };
-  prompt?:         string;
-  transcript_path?: string;
+  // Common fields present on every Claude Code hook
+  session_id?:        string;                  // Claude Code session UUID
+  cwd?:               string;                  // working directory of the Claude process
+  hook_event_name?:   string;                  // e.g. "PreToolUse"
+
+  // PreToolUse / PostToolUse
+  tool_name?:         string;
+  tool_input?:        Record<string, unknown>;
+  tool_response?:     { is_error?: boolean; success?: boolean; [key: string]: unknown };
+
+  // UserPromptSubmit
+  prompt?:            string;
+
+  // Stop
+  transcript_path?:   string;
+  stop_hook_active?:  boolean;
+
+  // Notification
+  notification_type?: string;                  // "permission_prompt" | "idle_prompt" | "auth_success" | "elicitation_dialog"
+  message?:           string;                  // human-readable notification text
+
+  // SessionStart
+  source?:            string;                  // "startup" | "resume" | "clear" | "compact"
 }
 
 export interface ClaudeStageEvent {
-  type:       string;
-  timestamp:  number;
-  sessionId:  string;
-  tool?:      string;
-  phase?:     string;
-  params?:    Record<string, unknown>;
-  success?:   boolean;
-  text?:      string;
-  tokens?:    { input: number; output: number };
+  type:        string;
+  timestamp:   number;
+  sessionId:   string;
+  tool?:       string;
+  phase?:      string;
+  params?:     Record<string, unknown>;
+  success?:    boolean;
+  text?:       string;
+  tokens?:     { input: number; output: number };
+  notifType?:  string;   // notification events: original notification_type value
 }
 
 /**
@@ -35,7 +54,14 @@ export interface ClaudeStageEvent {
  *   Stop:             { transcript_path, ... }
  */
 export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent | null {
-  const event: ClaudeStageEvent = { type, timestamp: Date.now(), sessionId: process.cwd() };
+  // Prefer the session_id Claude Code provides (stable UUID per session) over
+  // process.cwd() so multi-session tracking is accurate even when two instances
+  // share the same working directory.
+  const event: ClaudeStageEvent = {
+    type,
+    timestamp: Date.now(),
+    sessionId: hookData.session_id ?? hookData.cwd ?? process.cwd(),
+  };
 
   if (type === 'tool_use') {
     event.tool   = hookData.tool_name;
@@ -69,6 +95,30 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
     // are not real user messages and would appear as false USER → ... entries.
     if (/^<[a-zA-Z_]/.test(text)) return null;
     event.text = hookData.prompt ?? '';
+
+  } else if (type === 'notification') {
+    const nt = hookData.notification_type ?? '';
+    // idle_prompt fires constantly while Claude waits — not useful to visualise.
+    if (nt === 'idle_prompt') return null;
+    // permission_prompt / elicitation_dialog → reuse the dedicated permission type
+    // so the stage shows the "waiting" animation and warning bubble.
+    if (nt === 'permission_prompt' || nt === 'elicitation_dialog') {
+      event.type     = 'permission';
+      event.text     = hookData.message ?? 'Permission needed';
+      event.notifType = nt;
+    } else {
+      event.text      = hookData.message ?? (nt || 'Notification');
+      event.notifType = nt;
+    }
+
+  } else if (type === 'session_start') {
+    // source: "startup" | "resume" | "clear" | "compact"
+    event.text = hookData.source ?? 'startup';
+
+  } else if (type === 'stop_failure') {
+    // StopFailure fires when the response was interrupted by an error (rate
+    // limit, billing, auth, etc.).  No additional structured fields in stdin.
+    event.text = hookData.message ?? '';
 
   } else if (type === 'stop') {
     // Claude Code Stop hook doesn't expose token counts directly.

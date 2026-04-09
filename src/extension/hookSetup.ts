@@ -51,6 +51,9 @@ export function setupHooks(
       ['PreToolUse',       'tool_use'],
       ['PostToolUse',      'tool_result'],
       ['Stop',             'stop'],
+      ['Notification',     'notification'],
+      ['SessionStart',     'session_start'],
+      ['StopFailure',      'stop_failure'],
     ];
 
     for (const [hookName, eventType] of HOOK_MAP) {

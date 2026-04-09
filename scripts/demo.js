@@ -9,6 +9,8 @@
 const http = require('http');
 const PORT = 7891;
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
 function post(event) {
   return new Promise((resolve) => {
     const body = JSON.stringify({ ...event, timestamp: Date.now() });
@@ -19,8 +21,10 @@ function post(event) {
       method:   'POST',
       headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
     }, (res) => {
-      const tool = event.tool ? ` / ${event.tool}` : '';
-      console.log(`  ✓ ${event.type}${tool} → ${res.statusCode}`);
+      const extra = event.tool  ? ` / ${event.tool}`
+                  : event.text  ? ` "${String(event.text).slice(0, 35)}"`
+                  : '';
+      console.log(`  ✓ ${event.type}${extra} → ${res.statusCode}`);
       resolve();
     });
     req.on('error', (e) => {
@@ -34,49 +38,128 @@ function post(event) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Session IDs: path-style so the label (last segment) reads nicely on stage
+const SID_A = '/home/dev/my-project';
+const SID_B = '/home/dev/other-project';
+
+// ── demo ─────────────────────────────────────────────────────────────────────
+
 async function run() {
   console.log('\n── Claude Stage demo ────────────────────────────────────\n');
 
-  // 1. User prompt
-  console.log('1. User prompt');
-  await post({ type: 'user_prompt', text: 'Summarise this repo for me' });
-  await wait(1200);
-
-  // 2. Tool use + success flash (green glow)
-  console.log('\n2. Tool success flash');
-  await post({ type: 'tool_use',    tool: 'Read', phase: 'pre',  params: { file_path: 'package.json' } });
-  await wait(800);
-  await post({ type: 'tool_result', tool: 'Read', phase: 'post', success: true });
+  // ── Scene 1: Session startup ──────────────────────────────────────────────
+  console.log('1. Session startup');
+  await post({ type: 'session_start', sessionId: SID_A, text: 'startup' });
   await wait(1000);
 
-  // 3. Tool failure shake (red shake)
-  console.log('\n3. Tool failure shake');
-  await post({ type: 'tool_use',    tool: 'Bash', phase: 'pre',  params: { command: 'bad-command --force' } });
+  // ── Scene 2: User prompt + read/search/edit ───────────────────────────────
+  console.log('\n2. User prompt + tool calls');
+  await post({ type: 'user_prompt', sessionId: SID_A, text: 'Refactor the authentication module' });
+  await wait(1000);
+
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Read',  phase: 'pre',  params: { file_path: 'src/auth/index.ts' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Read',  phase: 'post', success: true });
+  await wait(600);
+
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Grep',  phase: 'pre',  params: { pattern: 'authenticate' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Grep',  phase: 'post', success: true });
+  await wait(600);
+
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Edit',  phase: 'pre',  params: { file_path: 'src/auth/index.ts' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Edit',  phase: 'post', success: true });
   await wait(800);
-  await post({ type: 'tool_result', tool: 'Bash', phase: 'post', success: false });
+
+  // ── Scene 3: Tool failure (red shake) ────────────────────────────────────
+  console.log('\n3. Tool failure → recovery');
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Bash', phase: 'pre',  params: { command: 'npm run build' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Bash', phase: 'post', success: false });
+  await wait(900);
+
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Bash', phase: 'pre',  params: { command: 'npm install --legacy-peer-deps' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Bash', phase: 'post', success: true });
+  await wait(800);
+
+  // ── Scene 4: Permission prompt ────────────────────────────────────────────
+  console.log('\n4. Permission prompt');
+  await post({ type: 'permission', sessionId: SID_A, text: 'Run destructive command?' });
+  await wait(2000);
+
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'Bash', phase: 'pre',  params: { command: 'rm -rf dist/' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_A, tool: 'Bash', phase: 'post', success: true });
+  await wait(1000);
+
+  // ── Scene 5: Spawn three agents ───────────────────────────────────────────
+  console.log('\n5. Spawning three agents');
+  const PROMPT_A = 'Explore and summarise the test directory';
+  const PROMPT_B = 'Explore and summarise the docs directory';
+  const PROMPT_C = 'Write the database migration script';
+  await post({ type: 'tool_use', sessionId: SID_A, tool: 'Agent', phase: 'pre', params: { prompt: PROMPT_A } });
+  await wait(800);
+  await post({ type: 'tool_use', sessionId: SID_A, tool: 'Agent', phase: 'pre', params: { prompt: PROMPT_B } });
+  await wait(800);
+  await post({ type: 'tool_use', sessionId: SID_A, tool: 'Agent', phase: 'pre', params: { prompt: PROMPT_C } });
   await wait(1500);
 
-  // 4. Agent hierarchy lines
-  console.log('\n4. Agent hierarchy lines');
-  await post({ type: 'tool_use', tool: 'Agent', phase: 'pre', params: { description: 'Explore src/' } });
+  // ── Scene 6: Agents complete out of order ─────────────────────────────────
+  console.log('\n6. Agents completing (out of order)');
+  await post({ type: 'agent_done', sessionId: SID_A, success: true,  text: PROMPT_B });
+  await wait(1200);
+  await post({ type: 'agent_done', sessionId: SID_A, success: false, text: PROMPT_C });
+  await wait(1200);
+  await post({ type: 'agent_done', sessionId: SID_A, success: true,  text: PROMPT_A });
   await wait(800);
-  await post({ type: 'tool_use', tool: 'Agent', phase: 'pre', params: { description: 'Explore media/' } });
+
+  // ── Scene 7: First stop + token gauge ────────────────────────────────────
+  console.log('\n7. Stop – token gauge fills');
+  await post({ type: 'stop', sessionId: SID_A, tokens: { input: 22000, output: 5800 } });
   await wait(1200);
 
-  // 5. Stop with token data
-  console.log('\n5. Token counter');
-  await post({ type: 'stop', tokens: { input: 18500, output: 4200 } });
-  await wait(1500);
-
-  // 6. Second turn – tokens accumulate
-  console.log('\n6. Second turn – token gauge grows');
-  await post({ type: 'user_prompt', text: 'Now write tests for it' });
+  // ── Scene 8: Second session joins ────────────────────────────────────────
+  console.log('\n8. Second session starts (multi-session)');
+  await post({ type: 'session_start', sessionId: SID_B, text: 'resume' });
   await wait(800);
-  await post({ type: 'tool_use',    tool: 'Grep', phase: 'pre',  params: { pattern: 'describe' } });
+  await post({ type: 'user_prompt',   sessionId: SID_B, text: 'Fix the failing tests' });
+  await wait(900);
+
+  await post({ type: 'tool_use',    sessionId: SID_B, tool: 'Read',      phase: 'pre',  params: { file_path: 'test/auth.test.ts' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_B, tool: 'Read',      phase: 'post', success: true });
   await wait(600);
-  await post({ type: 'tool_result', tool: 'Grep', phase: 'post', success: true });
+
+  await post({ type: 'tool_use',    sessionId: SID_B, tool: 'TodoWrite', phase: 'pre',  params: { todos: [] } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_B, tool: 'TodoWrite', phase: 'post', success: true });
   await wait(600);
-  await post({ type: 'stop', tokens: { input: 24000, output: 6100 } });
+
+  await post({ type: 'tool_use',    sessionId: SID_B, tool: 'WebSearch', phase: 'pre',  params: { query: 'jest mock async module' } });
+  await wait(700);
+  await post({ type: 'tool_result', sessionId: SID_B, tool: 'WebSearch', phase: 'post', success: true });
+  await wait(800);
+
+  // ── Scene 9: Auth notification ────────────────────────────────────────────
+  console.log('\n9. Notification – auth success');
+  await post({ type: 'notification', sessionId: SID_B, text: 'Authenticated', notifType: 'auth_success' });
+  await wait(1200);
+
+  // ── Scene 10: Second session stop ─────────────────────────────────────────
+  console.log('\n10. Second session stop');
+  await post({ type: 'stop', sessionId: SID_B, tokens: { input: 11000, output: 3200 } });
+  await wait(1200);
+
+  // ── Scene 11: Stop failure ────────────────────────────────────────────────
+  console.log('\n11. Stop failure (rate limit)');
+  await post({ type: 'user_prompt', sessionId: SID_A, text: 'One more thing…' });
+  await wait(800);
+  await post({ type: 'tool_use',    sessionId: SID_A, tool: 'WebFetch', phase: 'pre', params: { url: 'https://example.com' } });
+  await wait(700);
+  await post({ type: 'stop_failure', sessionId: SID_A, text: 'Rate limit exceeded — try again shortly' });
+  await wait(2000);
 
   console.log('\n─────────────────────────────────────────────────────────\n');
   console.log('Done. Run  node scripts/demo.js  again to replay.');

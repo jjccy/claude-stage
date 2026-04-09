@@ -37,16 +37,18 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 
 ## Event Types
 
-| Event type | Trigger | Figure behavior |
-|-----------|---------|----------------|
-| `user_prompt` | User submits a message | User figure speaks, Claude starts thinking |
-| `thinking` | Claude is reasoning | Claude figure bobs head, thought bubble |
-| `tool_use` | Any tool called (pre) | Claude animates to tool-specific pose + bubble |
-| `tool_result` | Tool returns (post) | Claude returns to thinking state |
-| `tool_use` (Agent) | Agent spawned | New agent figure appears; force layout re-settles all agents |
-| `agent_done` | Agent tool returned | Agent flashes, goes idle, then fades; parent Claude continues |
-| `permission` | Claude awaits approval | Claude raises hand, waits |
-| `stop` | Response complete | Claude smiles, agents fade out |
+| Event type | Hook source | Figure behaviour |
+|-----------|------------|-----------------|
+| `user_prompt` | UserPromptSubmit | User figure speaks, Claude starts thinking |
+| `tool_use` | PreToolUse | Claude animates to tool-specific pose + bubble |
+| `tool_result` | PostToolUse | Claude flashes success/error, returns to thinking |
+| `agent_done` | PostToolUse (tool=Agent, derived) | Agent flashes, goes idle, then fades |
+| `permission` | Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble |
+| `notification` | Notification (auth_success, other types) | Brief bubble on Claude (icon + message), 3 s timeout |
+| `session_start` | SessionStart | Claude waves 👋/↩/📦 depending on source, 2.5 s |
+| `stop` | Stop | Claude shows ✓ Done, token gauge updates |
+| `stop_failure` | StopFailure | Claude goes to `waiting` pose, ⚠️ error bubble, 5 s timeout |
+| `thinking` | *(no hook — reserved)* | Claude bobs head, thought bubble |
 
 ## Tool → Animation Mapping
 
@@ -61,20 +63,19 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 
 ## Claude Code Hook Integration
 
-The extension auto-registers hooks on activation via `setupHooks()`. It copies `out/hooks/notify.js` to a stable path (`~/.claude/claude-stage-hook/notify.js`) and merges four entries into `~/.claude/settings.json`:
+The extension auto-registers hooks on activation via `setupHooks()`. It copies `out/hooks/notify.js` to a stable path (`~/.claude/claude-stage-hook/notify.js`) and merges seven entries into `~/.claude/settings.json`:
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [{ "matcher": "", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-stage-hook/notify.js\" user_prompt" }] }],
-    "PreToolUse":       [{ "matcher": "", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-stage-hook/notify.js\" tool_use"    }] }],
-    "PostToolUse":      [{ "matcher": "", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-stage-hook/notify.js\" tool_result"  }] }],
-    "Stop":             [{ "matcher": "", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-stage-hook/notify.js\" stop"         }] }]
-  }
-}
-```
+| Hook | Event arg | What fires it |
+|------|-----------|---------------|
+| `UserPromptSubmit` | `user_prompt` | User sends a message |
+| `PreToolUse` | `tool_use` | Any tool call starts |
+| `PostToolUse` | `tool_result` | Any tool call finishes |
+| `Stop` | `stop` | Response complete |
+| `Notification` | `notification` | Claude sends a notification (permission prompts, auth, etc.) |
+| `SessionStart` | `session_start` | Session begins (startup / resume / compact / clear) |
+| `StopFailure` | `stop_failure` | Response aborted by error (rate limit, billing, auth) |
 
-`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
+`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. It uses `session_id` from the hook stdin (when present) as the session identifier for accurate multi-session tracking. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
 
 ## Future Features
 
@@ -92,13 +93,13 @@ The extension auto-registers hooks on activation via `setupHooks()`. It copies `
 
 ## Testing
 
-Run with `npm test`. 34 tests across 3 suites.
+Run with `npm test`. 45 tests across 3 suites.
 
 | File | Covers |
 |------|--------|
 | `test/eventServer.test.ts` | HTTP server: start/stop, status codes (200/400/405/204), event emission, timestamp stamping |
-| `test/notify.test.ts` | `buildEvent()`: all event types, `agent_done` emission for Agent tool, XML prompt filtering, transcript token parsing, `sessionId` |
-| `test/setupHooks.test.ts` | `setupHooks()`: port stamping, all four hook types, idempotency, preservation of existing hooks and other settings keys |
+| `test/notify.test.ts` | `buildEvent()`: all event types incl. notification/session_start/stop_failure, `agent_done` for Agent, XML filtering, transcript token parsing, `session_id` → `sessionId` |
+| `test/setupHooks.test.ts` | `setupHooks()`: port stamping, all seven hook types, idempotency, preservation of existing hooks and other settings keys |
 
 Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation.
 

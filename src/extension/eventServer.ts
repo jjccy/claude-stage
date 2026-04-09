@@ -2,8 +2,18 @@ import * as http from 'http';
 import { EventEmitter } from 'events';
 
 export interface ClaudeEvent {
-  type: 'tool_use' | 'tool_result' | 'thinking' | 'user_prompt' | 'stop' | 'permission';
-  sessionId?: string;    // process.cwd() of the Claude instance that fired the hook
+  type:
+    | 'tool_use'       // PreToolUse hook
+    | 'tool_result'    // PostToolUse hook
+    | 'agent_done'     // PostToolUse hook, tool=Agent (derived)
+    | 'thinking'       // reserved — no hook yet
+    | 'user_prompt'    // UserPromptSubmit hook
+    | 'permission'     // Notification hook, notification_type=permission_prompt|elicitation_dialog (derived)
+    | 'notification'   // Notification hook (auth_success and other types)
+    | 'session_start'  // SessionStart hook
+    | 'stop'           // Stop hook
+    | 'stop_failure';  // StopFailure hook (rate_limit, billing_error, etc.)
+  sessionId?: string;    // Claude Code session UUID (from session_id in hook stdin)
   tool?: string;         // Read, Edit, Bash, Grep, Glob, Agent, Write, etc.
   phase?: 'pre' | 'post';
   params?: Record<string, unknown>;
@@ -11,6 +21,7 @@ export interface ClaudeEvent {
   text?: string;
   success?: boolean;     // tool_result: false when is_error=true
   tokens?: { input: number; output: number }; // stop: cumulative token usage
+  notifType?: string;    // notification/permission: original notification_type value
   timestamp: number;
 }
 

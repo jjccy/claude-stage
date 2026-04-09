@@ -142,9 +142,84 @@ describe('buildEvent', () => {
     expect(ev.timestamp).toBeGreaterThanOrEqual(before);
   });
 
-  it('includes sessionId equal to process.cwd()', () => {
+  it('uses session_id from hookData when present', () => {
+    const ev = buildEvent('stop', { session_id: 'abc-123' } as HookData)!;
+    expect(ev.sessionId).toBe('abc-123');
+  });
+
+  it('falls back to process.cwd() when session_id is absent', () => {
     const ev = buildEvent('stop', {} as HookData)!;
     expect(ev.sessionId).toBe(process.cwd());
+  });
+
+  describe('notification', () => {
+    it('returns null for idle_prompt (not useful to visualise)', () => {
+      expect(buildEvent('notification', { notification_type: 'idle_prompt' })).toBeNull();
+    });
+
+    it('maps permission_prompt to type=permission', () => {
+      const ev = buildEvent('notification', {
+        notification_type: 'permission_prompt',
+        message: 'Allow Bash?',
+      })!;
+      expect(ev.type).toBe('permission');
+      expect(ev.text).toBe('Allow Bash?');
+      expect(ev.notifType).toBe('permission_prompt');
+    });
+
+    it('maps elicitation_dialog to type=permission', () => {
+      const ev = buildEvent('notification', {
+        notification_type: 'elicitation_dialog',
+        message: 'Provide input',
+      })!;
+      expect(ev.type).toBe('permission');
+    });
+
+    it('emits type=notification for auth_success', () => {
+      const ev = buildEvent('notification', {
+        notification_type: 'auth_success',
+        message: 'Authenticated',
+      })!;
+      expect(ev.type).toBe('notification');
+      expect(ev.text).toBe('Authenticated');
+      expect(ev.notifType).toBe('auth_success');
+    });
+
+    it('uses notification_type as text fallback when message is absent', () => {
+      const ev = buildEvent('notification', { notification_type: 'auth_success' })!;
+      expect(ev.text).toBe('auth_success');
+    });
+
+    it('uses generic fallback when both message and notification_type are absent', () => {
+      const ev = buildEvent('notification', {})!;
+      expect(ev.type).toBe('notification');
+      expect(ev.text).toBe('Notification');
+    });
+  });
+
+  describe('session_start', () => {
+    it('stores source in text', () => {
+      const ev = buildEvent('session_start', { source: 'resume' })!;
+      expect(ev.type).toBe('session_start');
+      expect(ev.text).toBe('resume');
+    });
+
+    it('defaults text to "startup" when source is absent', () => {
+      const ev = buildEvent('session_start', {})!;
+      expect(ev.text).toBe('startup');
+    });
+  });
+
+  describe('stop_failure', () => {
+    it('sets type=stop_failure', () => {
+      const ev = buildEvent('stop_failure', {})!;
+      expect(ev.type).toBe('stop_failure');
+    });
+
+    it('stores message in text when present', () => {
+      const ev = buildEvent('stop_failure', { message: 'Rate limit exceeded' })!;
+      expect(ev.text).toBe('Rate limit exceeded');
+    });
   });
 
 });
