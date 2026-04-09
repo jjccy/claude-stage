@@ -2,3 +2,8 @@ node_modules/
 out/
 *.vsix
 .DS_Store
+.vscode-test/
+.claude/
+hooks/*.js.map
+media/*.js.map
+scripts/*.js.map
