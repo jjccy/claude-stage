@@ -1,10 +1,262 @@
-// Claude Stage – 2.5D figure animation engine
+// Claude Stage – pixel-art sprite animation engine
 // Receives events from the VS Code extension via postMessage
 
 (function () {
 
+  // ── Sprite system ─────────────────────────────────────────────────────────
+
+  const SCALE = 3;   // canvas px per sprite pixel
+  const SW    = 12;  // sprite width  in sprite-pixels
+  const SH    = 20;  // sprite height in sprite-pixels
+
+  const SKIN = '#FFDBA4';
+  const EYE  = '#2B2B2B';
+
+  interface Pal { b: string; d: string }
+
+  const PALS: Record<string, Pal> = {
+    user:   { b: '#4F9EFF', d: '#1F6FEB' },
+    claude: { b: '#BC8CFF', d: '#8B5CF6' },
+    agent:  { b: '#3FB950', d: '#238636' },
+  };
+
+  // 12-char rows per frame.
+  // . = transparent  s = skin  e = eye  b = body  d = dark body
+  const RAW: Record<string, string[]> = {
+
+    idle_0: [     // upright, eyes open
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'sseesssseess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '...bbbbbb...',
+      '..bbbbbbbb..',
+      '.bbbbbbbbbb.',
+      '.bbbbbbbbbb.',
+      '.bbbbbbbbbb.',
+      '..bbbbbbbb..',
+      '...bbbbbb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '..bbb..bbb..',
+    ],
+
+    idle_1: [     // blink (eyes closed)
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'ssssssssssss',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '...bbbbbb...',
+      '..bbbbbbbb..',
+      '.bbbbbbbbbb.',
+      '.bbbbbbbbbb.',
+      '.bbbbbbbbbb.',
+      '..bbbbbbbb..',
+      '...bbbbbb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '..bbb..bbb..',
+    ],
+
+    thinking_0: [ // left arm raised, body leans right
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'ssessssssess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '...bbbbbb...',
+      'bb.bbbbbbbb.',
+      'b..bbbbbbbb.',
+      'b..bbbbbbbb.',
+      '...bbbbbbbb.',
+      '....bbbbbb..',
+      '.....bbbb...',
+      '.....bb.bb..',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '....bbb..bbb',
+    ],
+
+    thinking_1: [ // arm slightly lower (wave effect)
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'ssessssssess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '...bbbbbb...',
+      'b..bbbbbbbb.',
+      'bb.bbbbbbbb.',
+      'b..bbbbbbbb.',
+      '...bbbbbbbb.',
+      '....bbbbbb..',
+      '.....bbbb...',
+      '.....bb.bb..',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '....bbb..bbb',
+    ],
+
+    working_0: [  // arms extended wide (lean forward)
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'sseesssseess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '..bbbbbbbb..',
+      '.bbbbbbbbbb.',
+      'bbbbbbbbbbbb',
+      'bbbbbbbbbbbb',
+      '.bbbbbbbbbb.',
+      '..bbbbbbbb..',
+      '...bbbbbb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '..bbb..bbb..',
+    ],
+
+    working_1: [  // arms at different row (pumping motion)
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'sseesssseess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '..bbbbbbbb..',
+      'bbbbbbbbbbbb',
+      '.bbbbbbbbbb.',
+      'bbbbbbbbbbbb',
+      '.bbbbbbbbbb.',
+      '..bbbbbbbb..',
+      '...bbbbbb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '...bb..bb...',
+      '..bbb..bbb..',
+    ],
+
+    waiting_0: [  // arms spread (shrug / waiting)
+      '..ssssssss..',
+      '.ssssssssss.',
+      'ssssssssssss',
+      'sseesssseess',
+      'ssssssssssss',
+      '.ssssssssss.',
+      '..ssssssss..',
+      '...bbbbbb...',
+      'b.bbbbbbbb.b',
+      'b.bbbbbbbb.b',
+      'b.bbbbbbbb.b',
+      '...bbbbbbbb.',
+      '....bbbbbb..',
+      '.....bbbb...',
+      '.....bb.bb..',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '.....bb..bb.',
+      '....bbb..bbb',
+    ],
+
+  };
+
+  type Pixel = string | null;
+  type Frame = Pixel[][];
+
+  function parseFrame(rows: string[], pal: Pal): Frame {
+    return rows.map(row => {
+      const r = row.padEnd(SW, '.').slice(0, SW);
+      return r.split('').map(c => {
+        switch (c) {
+          case 's': return SKIN;
+          case 'e': return EYE;
+          case 'b': return pal.b;
+          case 'd': return pal.d;
+          default:  return null;
+        }
+      });
+    });
+  }
+
+  class SpriteRenderer {
+    private frames: Map<string, Frame> = new Map();
+
+    constructor(role: string) {
+      const pal = PALS[role] ?? PALS['agent'];
+      for (const [key, raw] of Object.entries(RAW)) {
+        this.frames.set(key, parseFrame(raw, pal));
+      }
+    }
+
+    draw(ctx: CanvasRenderingContext2D, frameName: string): void {
+      ctx.clearRect(0, 0, SW * SCALE, SH * SCALE);
+      const frame = this.frames.get(frameName) ?? this.frames.get('idle_0')!;
+      for (let y = 0; y < frame.length; y++) {
+        for (let x = 0; x < frame[y].length; x++) {
+          const color = frame[y][x];
+          if (color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+          }
+        }
+      }
+    }
+  }
+
+  // Animation schedule: state → frames to cycle + ms per frame
+  const ANIM: Record<string, { frames: string[]; ms: number }> = {
+    idle:      { frames: ['idle_0','idle_0','idle_0','idle_0','idle_1'], ms: 700 },
+    thinking:  { frames: ['thinking_0', 'thinking_1'], ms: 500 },
+    searching: { frames: ['working_0',  'working_1'],  ms: 350 },
+    writing:   { frames: ['working_0',  'working_1'],  ms: 350 },
+    running:   { frames: ['working_0',  'working_1'],  ms: 260 },
+    spawning:  { frames: ['idle_0'],                   ms: 600 },
+    waiting:   { frames: ['waiting_0'],                ms: 1000 },
+  };
+
+  // ── Stage setup ───────────────────────────────────────────────────────────
+
   interface Slot { x: number; y: number }
-  interface Figure { el: HTMLElement; role: string; state: string; bubble?: HTMLElement | null }
+
+  interface Figure {
+    el:       HTMLElement;
+    canvas:   HTMLCanvasElement;
+    ctx:      CanvasRenderingContext2D;
+    renderer: SpriteRenderer;
+    role:     string;
+    state:    string;
+    frameIdx: number;
+    timer?:   number;
+    bubble?:  HTMLElement | null;
+  }
+
   interface StageEvent {
     type:     string;
     tool?:    string;
@@ -20,7 +272,6 @@
   const statusIcon   = document.getElementById('status-icon')!;
   const statusText   = document.getElementById('status-text')!;
 
-  // ── Figure registry ──────────────────────────────────────────
   const figures = new Map<string, Figure>();
 
   const SLOTS: Record<string, Slot> = {
@@ -34,53 +285,46 @@
   let agentCount        = 0;
   let totalInputTokens  = 0;
   let totalOutputTokens = 0;
+  const MAX_TOKENS      = 200000;
 
-  const MAX_TOKENS = 200000;
-
-  // ── Emoji / action maps ──────────────────────────────────────
   const TOOL_EMOJI: Record<string, string> = {
-    Read:     '📄',
-    Write:    '✍️',
-    Edit:     '✏️',
-    Bash:     '⚡',
-    Grep:     '🔍',
-    Glob:     '🗂️',
-    Agent:    '🤖',
-    WebFetch: '🌐',
-    WebSearch:'🔎',
-    TodoWrite:'📋',
-    default:  '⚙️',
+    Read: '📄', Write: '✍️', Edit: '✏️', Bash: '⚡', Grep: '🔍',
+    Glob: '🗂️', Agent: '🤖', WebFetch: '🌐', WebSearch: '🔎',
+    TodoWrite: '📋', default: '⚙️',
   };
 
   const TOOL_ACTION: Record<string, string> = {
-    Read:     'reading',
-    Write:    'writing',
-    Edit:     'writing',
-    Bash:     'running',
-    Grep:     'searching',
-    Glob:     'searching',
-    Agent:    'spawning',
-    WebFetch: 'searching',
-    WebSearch:'searching',
+    Read: 'reading', Write: 'writing', Edit: 'writing', Bash: 'running',
+    Grep: 'searching', Glob: 'searching', Agent: 'spawning',
+    WebFetch: 'searching', WebSearch: 'searching',
   };
 
-  // ── Build a figure element ────────────────────────────────────
+  // ── Figure management ─────────────────────────────────────────────────────
+
   function buildFigure(id: string, role: string, label: string): HTMLElement {
     const el = document.createElement('div');
     el.className  = `figure ${role}`;
     el.dataset.id = id;
-    el.innerHTML  = `
-      <div class="body">
-        <div class="head"><span class="face">😐</span></div>
-        <div class="torso"></div>
-        <div class="legs">
-          <div class="leg"></div>
-          <div class="leg"></div>
-        </div>
-      </div>
-      <div class="shadow"></div>
-      <div class="label">${label}</div>
-    `;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'sprite-wrap';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sprite';
+    canvas.width  = SW * SCALE;
+    canvas.height = SH * SCALE;
+    wrap.appendChild(canvas);
+
+    const shadow = document.createElement('div');
+    shadow.className = 'shadow';
+
+    const labelEl = document.createElement('div');
+    labelEl.className   = 'label';
+    labelEl.textContent = label;
+
+    el.appendChild(wrap);
+    el.appendChild(shadow);
+    el.appendChild(labelEl);
     return el;
   }
 
@@ -93,21 +337,51 @@
 
   function ensureFigure(id: string, role: string, label: string, slotKey: string): Figure {
     if (!figures.has(id)) {
-      const el = buildFigure(id, role, label);
+      const el       = buildFigure(id, role, label);
+      const canvas   = el.querySelector<HTMLCanvasElement>('.sprite')!;
+      const ctx      = canvas.getContext('2d')!;
+      const renderer = new SpriteRenderer(role);
       placeFigure(el, slotKey);
       figuresLayer.appendChild(el);
-      figures.set(id, { el, role, state: 'idle' });
+      const fig: Figure = { el, canvas, ctx, renderer, role, state: 'idle', frameIdx: 0 };
+      figures.set(id, fig);
+      startAnim(fig);
     }
     return figures.get(id)!;
   }
 
-  // ── Bubble management ─────────────────────────────────────────
+  // ── Animation loop ────────────────────────────────────────────────────────
+
+  function startAnim(fig: Figure): void {
+    if (fig.timer !== undefined) clearTimeout(fig.timer);
+    const sched = ANIM[fig.state] ?? ANIM['idle'];
+    fig.frameIdx = 0;
+
+    function tick(): void {
+      const name = sched.frames[fig.frameIdx % sched.frames.length];
+      fig.renderer.draw(fig.ctx, name);
+      fig.frameIdx++;
+      fig.timer = window.setTimeout(tick, sched.ms);
+    }
+    tick();
+  }
+
+  // ── State transitions ─────────────────────────────────────────────────────
+
+  function setState(fig: Figure, state: string): void {
+    fig.state = state;
+    fig.el.classList.toggle('spawning', state === 'spawning');
+    startAnim(fig);
+  }
+
+  // ── Bubbles ───────────────────────────────────────────────────────────────
+
   function showBubble(fig: Figure, text: string, isThought = false): void {
     clearBubble(fig);
     const bubble = document.createElement('div');
     bubble.className   = isThought ? 'thought-bubble' : 'bubble';
     bubble.textContent = text;
-    fig.el.querySelector('.body')!.appendChild(bubble);
+    fig.el.querySelector('.sprite-wrap')!.appendChild(bubble);
     fig.bubble = bubble;
   }
 
@@ -116,33 +390,18 @@
     fig.bubble = null;
   }
 
-  // ── State transitions ─────────────────────────────────────────
-  function setState(fig: Figure, state: string): void {
-    ['thinking', 'searching', 'writing', 'running', 'waiting', 'spawning']
-      .forEach(a => fig.el.classList.remove(a));
-    if (state && state !== 'idle') fig.el.classList.add(state);
-    fig.state = state;
-  }
+  // ── Flash on tool result ──────────────────────────────────────────────────
 
-  function setFace(fig: Figure, face: string): void {
-    const el = fig.el.querySelector<HTMLElement>('.face');
-    if (el) el.textContent = face;
-  }
-
-  // ── Flash body on tool success / failure ──────────────────────
   function flashFigure(fig: Figure, success: boolean): void {
-    const body = fig.el.querySelector<HTMLElement>('.body')!;
-    body.style.animation = success
+    const wrap = fig.el.querySelector<HTMLElement>('.sprite-wrap')!;
+    wrap.style.animation = success
       ? 'successFlash 0.6s ease-out'
       : 'errorShake 0.5s ease-out';
-    if (!success) setFace(fig, '😬');
-    setTimeout(() => {
-      body.style.animation = '';
-      if (!success) setTimeout(() => setFace(fig, '🤔'), 800);
-    }, 700);
+    setTimeout(() => { wrap.style.animation = ''; }, 700);
   }
 
-  // ── Agent hierarchy lines (SVG overlay) ───────────────────────
+  // ── Hierarchy lines (SVG overlay) ─────────────────────────────────────────
+
   function updateHierarchyLines(): void {
     const svg = document.getElementById('hierarchy-svg');
     if (!svg) return;
@@ -156,15 +415,15 @@
     if (!hasAgents) return;
 
     const layerRect  = figuresLayer.getBoundingClientRect();
-    const claudeBody = claudeFig.el.querySelector<HTMLElement>('.body')!;
-    const cr         = claudeBody.getBoundingClientRect();
+    const claudeWrap = claudeFig.el.querySelector<HTMLElement>('.sprite-wrap')!;
+    const cr         = claudeWrap.getBoundingClientRect();
     const cx         = cr.left - layerRect.left + cr.width  / 2;
     const cy         = cr.top  - layerRect.top  + cr.height / 2;
 
     figures.forEach((fig, id) => {
       if (!id.startsWith('agent')) return;
-      const body = fig.el.querySelector<HTMLElement>('.body')!;
-      const ar   = body.getBoundingClientRect();
+      const wrap = fig.el.querySelector<HTMLElement>('.sprite-wrap')!;
+      const ar   = wrap.getBoundingClientRect();
       const ax   = ar.left - layerRect.left + ar.width  / 2;
       const ay   = ar.top  - layerRect.top  + ar.height / 2;
 
@@ -180,7 +439,8 @@
     });
   }
 
-  // ── Token gauge ───────────────────────────────────────────────
+  // ── Token gauge ───────────────────────────────────────────────────────────
+
   function updateTokenGauge(): void {
     const total   = totalInputTokens + totalOutputTokens;
     const counter = document.getElementById('token-counter');
@@ -195,7 +455,8 @@
     bar.className   = pct > 80 ? 'critical' : pct > 60 ? 'warning' : '';
   }
 
-  // ── Log ───────────────────────────────────────────────────────
+  // ── Log ───────────────────────────────────────────────────────────────────
+
   function addLog(text: string, type = ''): void {
     const entry = document.createElement('div');
     entry.className   = `log-entry ${type}`;
@@ -207,17 +468,18 @@
   function ts(): string {
     const d = new Date();
     return [d.getHours(), d.getMinutes(), d.getSeconds()]
-      .map(n => String(n).padStart(2, '0'))
-      .join(':');
+      .map(n => String(n).padStart(2, '0')).join(':');
   }
 
-  // ── Status bar ────────────────────────────────────────────────
+  // ── Status bar ────────────────────────────────────────────────────────────
+
   function setStatus(text: string, state = ''): void {
     statusText.textContent = text;
     statusIcon.className   = state;
   }
 
-  // ── Event handler ─────────────────────────────────────────────
+  // ── Event handler ─────────────────────────────────────────────────────────
+
   function handleEvent(event: StageEvent): void {
     switch (event.type) {
 
@@ -225,21 +487,18 @@
         const user   = ensureFigure('user',   'user',   'User',   'user');
         const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
         setState(user, 'idle');
-        setFace(user, '🗣️');
         showBubble(user, truncate(event.text ?? 'Request', 30));
         setState(claude, 'thinking');
-        setFace(claude, '🤔');
         showBubble(claude, '...', true);
         setStatus('User sent a request', 'active');
         addLog(`USER: ${truncate(event.text ?? '', 40)}`, 'user');
-        setTimeout(() => { clearBubble(user); setFace(user, '😐'); }, 3000);
+        setTimeout(() => clearBubble(user), 3000);
         break;
       }
 
       case 'thinking': {
         const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
         setState(claude, 'thinking');
-        setFace(claude, '🤔');
         showBubble(claude, event.text ? truncate(event.text, 25) : '💭', true);
         setStatus('Claude is thinking...', 'thinking');
         addLog(`THINKING: ${truncate(event.text ?? '', 40)}`, 'claude');
@@ -258,7 +517,6 @@
           agentCount++;
           const agent = ensureFigure(agentId, 'agent', `Agent ${agentCount}`, slotKey);
           setState(agent, 'spawning');
-          setFace(agent, '🤖');
           setTimeout(() => { setState(agent, 'thinking'); updateHierarchyLines(); }, 600);
           showBubble(claude, `${emoji} Spawning agent`);
           setStatus(`Spawning agent #${agentCount}`, 'active');
@@ -278,7 +536,6 @@
         const success = event.success !== false;
         flashFigure(claude, success);
         setState(claude, 'thinking');
-        if (success) setFace(claude, '🤔');
         clearBubble(claude);
         setStatus(
           success ? 'Processing result...' : `Error in ${event.tool ?? 'tool'}`,
@@ -291,7 +548,6 @@
       case 'permission': {
         const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
         setState(claude, 'waiting');
-        setFace(claude, '🙋');
         showBubble(claude, '⚠️ Permission needed');
         setStatus('Waiting for permission...', 'error');
         addLog(`PERMISSION: ${event.text ?? event.tool ?? ''}`, 'error');
@@ -301,7 +557,6 @@
       case 'stop': {
         const claude = ensureFigure('claude', 'claude', 'Claude', 'claude');
         setState(claude, 'idle');
-        setFace(claude, '😊');
         showBubble(claude, '✓ Done');
         setStatus('Done', '');
         addLog('STOP: response complete', 'claude');
@@ -317,7 +572,11 @@
           if (id.startsWith('agent')) {
             setTimeout(() => {
               fig.el.style.animation = 'fadeOut 0.5s forwards';
-              setTimeout(() => { fig.el.remove(); figures.delete(id); }, 500);
+              setTimeout(() => {
+                if (fig.timer !== undefined) clearTimeout(fig.timer);
+                fig.el.remove();
+                figures.delete(id);
+              }, 500);
             }, 1000);
           }
         });
@@ -328,7 +587,8 @@
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
   function truncate(str: string, n: number): string {
     return str.length > n ? str.slice(0, n - 1) + '…' : str;
   }
@@ -346,13 +606,17 @@
     return first != null ? truncate(String(first), 25) : '';
   }
 
-  // ── VS Code message listener ──────────────────────────────────
+  // ── VS Code message listener ──────────────────────────────────────────────
+
   window.addEventListener('message', (msg: MessageEvent) => {
     const data = msg.data as { command: string; event?: StageEvent };
     if (data.command === 'event' && data.event) {
       handleEvent(data.event);
     } else if (data.command === 'clear') {
-      figures.forEach(fig => fig.el.remove());
+      figures.forEach(fig => {
+        if (fig.timer !== undefined) clearTimeout(fig.timer);
+        fig.el.remove();
+      });
       figures.clear();
       const svg = document.getElementById('hierarchy-svg');
       if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);

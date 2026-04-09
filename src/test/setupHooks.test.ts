@@ -11,9 +11,9 @@ describe('setupHooks', () => {
     // Each test gets a fully isolated temp directory
     tempDir      = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-stage-test-'));
     extensionDir = path.join(tempDir, 'extension');
-    fs.mkdirSync(path.join(extensionDir, 'hooks'), { recursive: true });
+    fs.mkdirSync(path.join(extensionDir, 'out', 'hooks'), { recursive: true });
     fs.writeFileSync(
-      path.join(extensionDir, 'hooks', 'notify.js'),
+      path.join(extensionDir, 'out', 'hooks', 'notify.js'),
       'const PORT = 7891;\n// placeholder\n'
     );
   });

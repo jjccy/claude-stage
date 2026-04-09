@@ -29,7 +29,10 @@ export class StagePanel {
       column,
       {
         enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, 'media'),
+          vscode.Uri.joinPath(extensionUri, 'out', 'media'),
+        ],
         retainContextWhenHidden: true,
       }
     );
@@ -53,7 +56,9 @@ export class StagePanel {
   private getHtml(): string {
     const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'media');
     const cssUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, 'stage.css'));
-    const jsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, 'stage.js'));
+    const jsUri  = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'media', 'stage.js')
+    );
 
     return `<!DOCTYPE html>
 <html lang="en">

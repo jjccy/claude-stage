@@ -2,14 +2,14 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2020",
-    "rootDir": ".",
-    "outDir": ".",
+    "rootDir": "hooks",
+    "outDir": "out/hooks",
     "sourceMap": false,
     "strict": true,
     "esModuleInterop": true,
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["hooks/**/*.ts", "scripts/**/*.ts"],
+  "include": ["hooks/**/*.ts"],
   "exclude": ["node_modules"]
 }

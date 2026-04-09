@@ -5,7 +5,7 @@ import * as os from 'os';
 type HookEntry = { matcher: string; hooks: Array<{ type: string; command: string }> };
 
 /**
- * Copies hooks/notify.js to ~/.claude/claude-stage-hook/notify.js (a stable
+ * Copies out/hooks/notify.js to ~/.claude/claude-stage-hook/notify.js (a stable
  * path independent of extension version or install location) and merges the
  * four Claude Code hook entries into ~/.claude/settings.json.
  *
@@ -27,7 +27,7 @@ export function setupHooks(
   // 1. Copy notify.js to stable location, stamping in the configured port
   try {
     fs.mkdirSync(hookDir, { recursive: true });
-    const source  = path.join(extensionPath, 'hooks', 'notify.js');
+    const source  = path.join(extensionPath, 'out', 'hooks', 'notify.js');
     let   content = fs.readFileSync(source, 'utf8');
     content = content.replace(/const PORT = \d+/, `const PORT = ${port}`);
     fs.writeFileSync(hookScript, content, 'utf8');
