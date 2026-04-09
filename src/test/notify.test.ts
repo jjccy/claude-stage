@@ -1,5 +1,7 @@
-'use strict';
-const { buildEvent } = require('../../hooks/notify');
+import * as os   from 'os';
+import * as fs   from 'fs';
+import * as path from 'path';
+import { buildEvent, HookData } from '../../hooks/notify';
 
 describe('buildEvent', () => {
 
@@ -66,21 +68,20 @@ describe('buildEvent', () => {
   });
 
   describe('stop', () => {
+    function makeTranscript(lines: unknown[]): string {
+      const p = path.join(os.tmpdir(), `transcript-${Date.now()}.jsonl`);
+      fs.writeFileSync(p, lines.map(l => JSON.stringify(l)).join('\n'));
+      return p;
+    }
+
     it('reads token usage from transcript_path if available', () => {
-      const os   = require('os');
-      const fs   = require('fs');
-      const path = require('path');
-
-      const transcriptPath = path.join(os.tmpdir(), `transcript-${Date.now()}.jsonl`);
-      fs.writeFileSync(transcriptPath, [
-        JSON.stringify({ type: 'human',     message: { role: 'user', content: 'hi' } }),
-        JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'hello',
-          usage: { input_tokens: 1500, output_tokens: 300 } } }),
-      ].join('\n'));
-
-      const ev = buildEvent('stop', { transcript_path: transcriptPath });
-      fs.unlinkSync(transcriptPath);
-
+      const p = makeTranscript([
+        { type: 'human',     message: { role: 'user', content: 'hi' } },
+        { type: 'assistant', message: { role: 'assistant', content: 'hello',
+            usage: { input_tokens: 1500, output_tokens: 300 } } },
+      ]);
+      const ev = buildEvent('stop', { transcript_path: p });
+      fs.unlinkSync(p);
       expect(ev.tokens).toEqual({ input: 1500, output: 300 });
     });
 
@@ -89,17 +90,10 @@ describe('buildEvent', () => {
       expect(ev.tokens).toBeUndefined();
     });
 
-    it('omits tokens when transcript file has no usage data', () => {
-      const os   = require('os');
-      const fs   = require('fs');
-      const path = require('path');
-
-      const transcriptPath = path.join(os.tmpdir(), `transcript-${Date.now()}.jsonl`);
-      fs.writeFileSync(transcriptPath, JSON.stringify({ type: 'human', message: {} }));
-
-      const ev = buildEvent('stop', { transcript_path: transcriptPath });
-      fs.unlinkSync(transcriptPath);
-
+    it('omits tokens when transcript has no usage data', () => {
+      const p = makeTranscript([{ type: 'human', message: {} }]);
+      const ev = buildEvent('stop', { transcript_path: p });
+      fs.unlinkSync(p);
       expect(ev.tokens).toBeUndefined();
     });
 
@@ -111,7 +105,7 @@ describe('buildEvent', () => {
 
   it('always includes a numeric timestamp', () => {
     const before = Date.now();
-    const ev = buildEvent('stop', {});
+    const ev     = buildEvent('stop', {} as HookData);
     expect(typeof ev.timestamp).toBe('number');
     expect(ev.timestamp).toBeGreaterThanOrEqual(before);
   });

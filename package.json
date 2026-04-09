@@ -39,8 +39,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && tsc -p tsconfig.hooks.json && tsc -p tsconfig.media.json",
     "watch": "tsc -watch -p ./",
+    "watch:hooks": "tsc -watch -p tsconfig.hooks.json",
+    "watch:media": "tsc -watch -p tsconfig.media.json",
     "lint": "eslint src",
     "test": "jest"
   },
