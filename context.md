@@ -28,9 +28,10 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 |------|---------|
 | `src/extension/extension.ts` | Activation, command registration, wiring |
 | `src/extension/eventServer.ts` | Local HTTP server that receives hook POSTs |
-| `src/extension/stagePanel.ts` | VS Code WebView panel lifecycle |
+| `src/extension/stagePanel.ts` | WebView panel: reads HTML template, injects config, handles messages |
 | `src/extension/hookSetup.ts` | Copies notify.js and merges Claude Code hooks |
 | `src/hook/notify.ts` | Hook script: `buildEvent` / `sendEvent`; compiled to `out/hooks/notify.js` |
+| `src/webview/stage.html` | HTML template for the panel (placeholders replaced at runtime) |
 | `src/webview/sprite.ts` | Pixel-art sprite data, `SpriteRenderer`, `ANIM` schedule |
 | `src/webview/force.ts` | Force-directed layout engine for agent positioning |
 | `src/webview/stage.ts` | Figure engine: sessions, events → canvas animations |
@@ -75,7 +76,42 @@ The extension auto-registers hooks on activation via `setupHooks()`. It copies `
 | `SessionStart` | `session_start` | Session begins (startup / resume / compact / clear) |
 | `StopFailure` | `stop_failure` | Response aborted by error (rate limit, billing, auth) |
 
-`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. It uses `session_id` from the hook stdin (when present) as the session identifier for accurate multi-session tracking. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
+`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. It uses `session_id` from the hook stdin (when present) as the session identifier for accurate multi-session tracking. Each event also carries a `label` field derived from the last path segment of `cwd` (e.g. `my-project`) — this is used as the display name under each Claude figure. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
+
+## ClaudeStageEvent shape
+
+```typescript
+interface ClaudeStageEvent {
+  type:        string;       // event type (see table above)
+  timestamp:   number;       // Date.now() at POST time
+  sessionId:   string;       // session_id UUID or cwd path
+  label?:      string;       // display name — last segment of cwd (e.g. "my-project")
+  tool?:       string;       // tool name for tool_use / tool_result
+  phase?:      string;       // "pre" | "post"
+  params?:     Record<string, unknown>;
+  success?:    boolean;
+  text?:       string;       // prompt text, notification message, session source, etc.
+  tokens?:     { input: number; output: number };
+  notifType?:  string;       // original notification_type value
+}
+```
+
+## Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `claudeStage.port` | `7891` | Port for the local event server |
+| `claudeStage.autoOpen` | `true` | Open the stage panel on startup |
+| `claudeStage.theme` | `"default"` | Color theme: `"default"` / `"light"` / `"high-contrast"` |
+| `claudeStage.figureDensity` | `1` | Agent zone size multiplier (0.5–3); larger = agents spread further apart |
+
+Settings are injected into the webview as `window.__CLAUDE_STAGE_CONFIG__` when the panel loads. Changing any `claudeStage.*` setting auto-reloads the panel via `onDidChangeConfiguration`.
+
+The ⚙ button in the status bar (bottom of the stage) opens VS Code settings filtered to `claudeStage`.
+
+## Event Log
+
+The bottom-right log panel shows the last 20 events in a compact scrollable widget. It is invisible until hovered (background and header fade in on hover). A ⊞ button expands to a full-screen overlay showing all 500 buffered entries, which also updates live as new events arrive. Both compact and overlay views auto-scroll to the newest entry.
 
 ## Future Features
 
@@ -86,19 +122,21 @@ The extension auto-registers hooks on activation via `setupHooks()`. It copies `
 - [x] **Pixel-art sprites** – Canvas-rendered 12×20 pixel figures with per-role colour palettes (blue=user, purple=claude, green=agent); replaces CSS stick figures
 - [x] **Multi-session support** – Up to 3 concurrent Claude instances, each assigned its own vertical band on the stage with independent agent zones
 - [x] **Force-directed agent layout** – Agents spread out naturally using pairwise repulsion + centre attraction physics; all existing agents redistribute on each spawn
+- [x] **Settings UI** – Port config, theme (default/light/high-contrast), figure density; ⚙ button in status bar opens VS Code settings
+- [x] **Event log** – Compact scrollable panel (20 entries, hover-reveal); ⊞ expands to full-screen overlay with 500-entry buffer, live updates
+- [x] **Session labels** – Display name derived from `cwd` last segment (project folder name) rather than raw UUID
 - [ ] **Camera pan** – Stage scrolls/pans as agents spread out
 - [ ] **History replay** – Record session events and replay them
 - [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel
-- [ ] **Settings UI** – Port config, theme, figure density
 
 ## Testing
 
-Run with `npm test`. 45 tests across 3 suites.
+Run with `npm test`. Tests across 3 suites.
 
 | File | Covers |
 |------|--------|
 | `test/eventServer.test.ts` | HTTP server: start/stop, status codes (200/400/405/204), event emission, timestamp stamping |
-| `test/notify.test.ts` | `buildEvent()`: all event types incl. notification/session_start/stop_failure, `agent_done` for Agent, XML filtering, transcript token parsing, `session_id` → `sessionId` |
+| `test/notify.test.ts` | `buildEvent()`: all event types incl. notification/session_start/stop_failure, `agent_done` for Agent, XML filtering, transcript token parsing, `session_id` → `sessionId`, `label` derivation from `cwd` |
 | `test/setupHooks.test.ts` | `setupHooks()`: port stamping, all seven hook types, idempotency, preservation of existing hooks and other settings keys |
 
 Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation.
@@ -110,6 +148,9 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 - **HTTP server** – Chosen over file watching for low latency and simplicity. Hooks POST to localhost:7891.
 - **Lazy figure creation** – Figures only appear when relevant events fire, not pre-placed.
 - **Agent lifecycle** – Agent figures spawn on Agent tool use and fade out on `stop` event.
+- **HTML template** – Panel HTML lives in `src/webview/stage.html` with `{{placeholder}}` substitution; `stagePanel.ts` reads it with `fs.readFileSync` and replaces `cspSource`, `styleUri`, `scriptUri`, and `config` at render time. Separates markup from TypeScript.
+- **Settings injection** – Current settings (theme, figureDensity) are serialised as `window.__CLAUDE_STAGE_CONFIG__` in a `<script>` block rather than passed via postMessage, so they are available synchronously at script startup before any events arrive.
+- **Session label from cwd** – Session UUIDs are not human-readable; `notify.ts` derives a `label` from the last path segment of `cwd` (the project directory) and sends it with every event. The stage stores this on first session creation and uses it for figure names and log text.
 
 ## Related Project
 

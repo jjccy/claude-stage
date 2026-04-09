@@ -190,27 +190,113 @@ body {
   to { opacity: 0; transform: translateY(-10px); }
 }
 
-/* ── Event Log ── */
+/* ── Event Log (compact) ── */
 #events-log {
   position: absolute;
   bottom: 32px;
   right: 8px;
   width: 220px;
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 2px;
-  padding: 6px 6px 4px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: rgba(13, 17, 23, 0.85);
-  border: 1px solid rgba(48, 54, 61, 0.6);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
+  overflow: hidden;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+#events-log:hover {
+  background: rgba(13, 17, 23, 0.92);
+  border-color: rgba(48, 54, 61, 0.6);
+}
+
+#log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 6px;
+  font-size: 9px;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#events-log:hover #log-header {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#log-header button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+}
+#log-header button:hover { color: var(--text); }
+
+#log-entries {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 4px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-dim) transparent;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 25%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 25%);
+}
+
+/* ── Log Overlay (full-screen) ── */
+#log-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.97);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+#log-overlay.hidden { display: none; }
+
+#log-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ground-border);
+  font-size: 11px;
+  color: var(--text);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#log-overlay-header button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+#log-overlay-header button:hover { color: var(--text); }
+
+#log-overlay-entries {
+  flex: 1;
+  height: 0; /* forces overflow-y to activate within flex parent */
+  overflow-y: auto;
+  padding: 8px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-dim) transparent;
 }
 
 .log-entry {
   font-size: 10px;
   color: var(--text-dim);
   padding: 2px 6px;
+  margin-bottom: 2px;
   border-left: 2px solid var(--text-dim);
   animation: logSlide 0.2s ease-out;
   white-space: nowrap;
@@ -308,3 +394,39 @@ body {
 
 #token-bar.warning  { background: var(--accent-yellow); }
 #token-bar.critical { background: var(--accent-red); }
+
+/* ── Settings button ── */
+#settings-btn {
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+}
+#settings-btn:hover { color: var(--text); }
+
+/* ── Themes ── */
+body.theme-light {
+  --bg: #ffffff;
+  --ground: #f6f8fa;
+  --ground-border: #d0d7de;
+  --tile-light: #eaeef2;
+  --tile-dark: #f6f8fa;
+  --text: #24292f;
+  --text-dim: #57606a;
+  --shadow: rgba(0,0,0,0.15);
+}
+
+body.theme-high-contrast {
+  --bg: #000000;
+  --ground: #0a0a0a;
+  --ground-border: #555555;
+  --tile-light: #111111;
+  --tile-dark: #0a0a0a;
+  --text: #ffffff;
+  --text-dim: #aaaaaa;
+  --shadow: rgba(255,255,255,0.1);
+}

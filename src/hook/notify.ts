@@ -33,6 +33,7 @@ export interface ClaudeStageEvent {
   type:        string;
   timestamp:   number;
   sessionId:   string;
+  label?:      string;   // human-readable session name (last segment of cwd)
   tool?:       string;
   phase?:      string;
   params?:     Record<string, unknown>;
@@ -57,10 +58,12 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
   // Prefer the session_id Claude Code provides (stable UUID per session) over
   // process.cwd() so multi-session tracking is accurate even when two instances
   // share the same working directory.
+  const cwd = hookData.cwd ?? process.cwd();
   const event: ClaudeStageEvent = {
     type,
     timestamp: Date.now(),
-    sessionId: hookData.session_id ?? hookData.cwd ?? process.cwd(),
+    sessionId: hookData.session_id ?? cwd,
+    label:     cwd.replace(/.*[\\/]/, '') || undefined,
   };
 
   if (type === 'tool_use') {

@@ -39,6 +39,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (StagePanel.currentPanel) {
         StagePanel.currentPanel.clear();
       }
+    }),
+    vscode.commands.registerCommand('claude-stage.openSettings', () => {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'claudeStage');
+    }),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('claudeStage') && StagePanel.currentPanel) {
+        StagePanel.currentPanel.reload();
+      }
     })
   );
 

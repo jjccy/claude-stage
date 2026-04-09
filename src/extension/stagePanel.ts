@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { ClaudeEvent } from './eventServer';
 
@@ -13,6 +14,12 @@ export class StagePanel {
 
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+
+    this.panel.webview.onDidReceiveMessage(msg => {
+      if (msg.command === 'openSettings') {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'claudeStage');
+      }
+    }, null, this.disposables);
   }
 
   static createOrShow(extensionUri: vscode.Uri): StagePanel {
@@ -54,40 +61,26 @@ export class StagePanel {
   }
 
   private getHtml(): string {
-    const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'src', 'webview');
-    const cssUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, 'stage.css'));
-    const jsUri  = this.panel.webview.asWebviewUri(
+    const config = vscode.workspace.getConfiguration('claudeStage');
+    const cssUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'stage.css')
+    );
+    const jsUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'out', 'media', 'stage.js')
     );
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src ${this.panel.webview.cspSource} 'unsafe-inline';">
-  <link rel="stylesheet" href="${cssUri}">
-  <title>Claude Stage</title>
-</head>
-<body>
-  <div id="stage">
-    <div id="ground"></div>
-    <div id="figures-layer">
-      <svg id="hierarchy-svg"></svg>
-    </div>
-    <div id="events-log"></div>
-    <div id="status-bar">
-      <span id="status-icon">●</span>
-      <span id="status-text">Waiting for Claude...</span>
-      <div id="token-counter">
-        <div id="token-bar-wrap"><div id="token-bar"></div></div>
-        <span id="token-count">—</span>
-      </div>
-    </div>
-  </div>
-  <script src="${jsUri}"></script>
-</body>
-</html>`;
+    const templatePath = vscode.Uri.joinPath(
+      this.extensionUri, 'src', 'webview', 'stage.html'
+    ).fsPath;
+    const template = fs.readFileSync(templatePath, 'utf-8');
+    const stageConfig = JSON.stringify({
+      theme: config.get<string>('theme', 'default'),
+      figureDensity: config.get<number>('figureDensity', 1),
+    });
+    return template
+      .replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource)
+      .replace('{{styleUri}}', cssUri.toString())
+      .replace('{{scriptUri}}', jsUri.toString())
+      .replace('{{config}}', stageConfig);
   }
 
   dispose(): void {

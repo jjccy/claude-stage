@@ -8,6 +8,18 @@
 
 (function () {
 
+  // ── Config (injected by extension) ────────────────────────────────────────
+
+  const cfg = (window as any).__CLAUDE_STAGE_CONFIG__ ?? {};
+  const figureDensity: number = cfg.figureDensity ?? 1;
+  if (cfg.theme && cfg.theme !== 'default') {
+    document.body.classList.add(`theme-${cfg.theme}`);
+  }
+  // Acquire VS Code API once for postMessage (settings button)
+  const vscodeApi = typeof (window as any).acquireVsCodeApi === 'function'
+    ? (window as any).acquireVsCodeApi()
+    : null;
+
   // ── Types ─────────────────────────────────────────────────────────────────
 
   interface Slot { x: number; y: number }
@@ -29,6 +41,7 @@
   interface StageEvent {
     type:        string;
     sessionId?:  string;
+    label?:      string;
     tool?:       string;
     phase?:      string;
     params?:     Record<string, unknown>;
@@ -40,6 +53,7 @@
 
   interface Session {
     claudeId:    string;
+    label:       string;
     agentCount:  number;
     lastActive:  number;
     slotIndex:   number;
@@ -59,8 +73,8 @@
 
   // Agent zone relative to Claude: centre 24% to the right, ±15% wide, ±30% tall.
   const AGENT_ZONE_DX = 24;
-  const AGENT_ZONE_HW = 15;
-  const AGENT_ZONE_HH = 30;
+  const AGENT_ZONE_HW = 15 * figureDensity;
+  const AGENT_ZONE_HH = 30 * figureDensity;
 
   const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -79,7 +93,7 @@
   // ── DOM references ────────────────────────────────────────────────────────
 
   const figuresLayer = document.getElementById('figures-layer')!;
-  const eventsLog    = document.getElementById('events-log')!;
+  const logEntries   = document.getElementById('log-entries')!;
   const statusIcon   = document.getElementById('status-icon')!;
   const statusText   = document.getElementById('status-text')!;
 
@@ -214,22 +228,35 @@
   // ── Session lifecycle ─────────────────────────────────────────────────────
 
   function sessionLabel(sessionId: string): string {
-    return sessionId.replace(/.*[\\/]/, '') || 'Claude';
+    // Use stored label if the session already exists
+    const stored = sessions.get(sessionId);
+    if (stored) return stored.label;
+    // Path-based ID: strip directory prefix
+    if (sessionId.includes('/') || sessionId.includes('\\')) {
+      return sessionId.replace(/.*[\\/]/, '') || 'Claude';
+    }
+    // UUID with no cwd label: short hex prefix
+    return sessionId.split('-')[0] || 'Claude';
   }
 
-  function getOrCreateSession(sessionId: string): Session {
+  function getOrCreateSession(sessionId: string, eventLabel?: string): Session {
     if (!sessions.has(sessionId)) {
       const slotIndex  = freeSlots.length > 0 ? freeSlots.pop()! : nextSlotIndex++;
       const claudeSlot = CLAUDE_SLOTS[slotIndex % CLAUDE_SLOTS.length];
       const claudeId   = `claude:${sessionId}`;
-      ensureFigure(claudeId, 'claude', sessionLabel(sessionId), claudeSlot);
+      // Derive display label: prefer cwd-based label from event, then fallback
+      const label = eventLabel
+        || (sessionId.includes('/') || sessionId.includes('\\')
+            ? sessionId.replace(/.*[\\/]/, '') || 'Claude'
+            : sessionId.split('-')[0] || 'Claude');
+      ensureFigure(claudeId, 'claude', label, claudeSlot);
       const agentLayout = new ForceLayout(
         claudeSlot.x + AGENT_ZONE_DX,
         claudeSlot.y,
         AGENT_ZONE_HW,
         AGENT_ZONE_HH,
       );
-      sessions.set(sessionId, { claudeId, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout });
+      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout });
     }
     return sessions.get(sessionId)!;
   }
@@ -327,13 +354,59 @@
 
   // ── Log & status bar ──────────────────────────────────────────────────────
 
-  function addLog(text: string, type = ''): void {
-    const entry = document.createElement('div');
-    entry.className   = `log-entry ${type}`;
-    entry.textContent = `${ts()} ${text}`;
-    eventsLog.prepend(entry);
-    while (eventsLog.children.length > 8) eventsLog.lastChild!.remove();
+  const LOG_MAX_COMPACT = 20;
+  const LOG_MAX_BUFFER  = 500;
+  const logBuffer: Array<{ text: string; type: string }> = [];
+
+  function makeLogEntry(text: string, type: string): HTMLElement {
+    const div = document.createElement('div');
+    div.className   = `log-entry ${type}`;
+    div.textContent = text;
+    return div;
   }
+
+  function addLog(text: string, type = ''): void {
+    const formatted = `${ts()} ${text}`;
+    logBuffer.push({ text: formatted, type });
+    if (logBuffer.length > LOG_MAX_BUFFER) logBuffer.shift();
+
+    // Compact log: append at bottom, trim oldest from top, scroll down
+    logEntries.appendChild(makeLogEntry(formatted, type));
+    while (logEntries.children.length > LOG_MAX_COMPACT) {
+      logEntries.firstChild!.remove();
+    }
+    logEntries.scrollTop = logEntries.scrollHeight;
+
+    // If overlay is open, keep it live too
+    const overlay        = document.getElementById('log-overlay');
+    const overlayEntries = document.getElementById('log-overlay-entries');
+    if (overlay && !overlay.classList.contains('hidden') && overlayEntries) {
+      overlayEntries.appendChild(makeLogEntry(formatted, type));
+      overlayEntries.scrollTop = overlayEntries.scrollHeight;
+    }
+  }
+
+  function openLogOverlay(): void {
+    const overlay        = document.getElementById('log-overlay')!;
+    const overlayEntries = document.getElementById('log-overlay-entries')!;
+    overlayEntries.innerHTML = '';
+    logBuffer.forEach(({ text, type }) => {
+      overlayEntries.appendChild(makeLogEntry(text, type));
+    });
+    overlay.classList.remove('hidden');
+    // Defer scroll so the DOM has painted first
+    requestAnimationFrame(() => { overlayEntries.scrollTop = overlayEntries.scrollHeight; });
+  }
+
+  function closeLogOverlay(): void {
+    document.getElementById('log-overlay')?.classList.add('hidden');
+  }
+
+  document.getElementById('log-expand-btn')?.addEventListener('click', openLogOverlay);
+  document.getElementById('log-collapse-btn')?.addEventListener('click', closeLogOverlay);
+  document.getElementById('settings-btn')?.addEventListener('click', () => {
+    vscodeApi?.postMessage({ command: 'openSettings' });
+  });
 
   function ts(): string {
     const d = new Date();
@@ -369,7 +442,7 @@
 
   function handleEvent(event: StageEvent): void {
     const sid     = event.sessionId ?? 'default';
-    const session = getOrCreateSession(sid);
+    const session = getOrCreateSession(sid, event.label);
     touchSession(session);
     const claude  = figures.get(session.claudeId)!;
     const sLabel  = sessionLabel(sid);
@@ -582,7 +655,8 @@
       freeSlots.length = 0;
       const svg = document.getElementById('hierarchy-svg');
       if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
-      eventsLog.innerHTML     = '';
+      logBuffer.length         = 0;
+      logEntries.innerHTML     = '';
       totalInputTokens        = 0;
       totalOutputTokens       = 0;
       const counter = document.getElementById('token-counter');

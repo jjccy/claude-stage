@@ -152,6 +152,24 @@ describe('buildEvent', () => {
     expect(ev.sessionId).toBe(process.cwd());
   });
 
+  describe('label', () => {
+    it('derives label from the last path segment of cwd', () => {
+      const ev = buildEvent('stop', { cwd: '/home/user/my-project' })!;
+      expect(ev.label).toBe('my-project');
+    });
+
+    it('works with Windows-style backslash paths', () => {
+      const ev = buildEvent('stop', { cwd: 'C:\\Users\\dev\\my-project' })!;
+      expect(ev.label).toBe('my-project');
+    });
+
+    it('falls back to process.cwd() last segment when cwd is absent', () => {
+      const ev = buildEvent('stop', {})!;
+      const expected = process.cwd().replace(/.*[\\/]/, '') || undefined;
+      expect(ev.label).toBe(expected);
+    });
+  });
+
   describe('notification', () => {
     it('returns null for idle_prompt (not useful to visualise)', () => {
       expect(buildEvent('notification', { notification_type: 'idle_prompt' })).toBeNull();

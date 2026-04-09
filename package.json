@@ -19,6 +19,10 @@
       {
         "command": "claude-stage.clearStage",
         "title": "Claude Stage: Clear Stage"
+      },
+      {
+        "command": "claude-stage.openSettings",
+        "title": "Claude Stage: Settings"
       }
     ],
     "configuration": {
@@ -33,6 +37,24 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically open the stage panel on startup"
+        },
+        "claudeStage.theme": {
+          "type": "string",
+          "default": "default",
+          "enum": ["default", "light", "high-contrast"],
+          "enumDescriptions": [
+            "Dark GitHub-style theme (default)",
+            "Light theme",
+            "High contrast"
+          ],
+          "description": "Color theme for the stage"
+        },
+        "claudeStage.figureDensity": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.5,
+          "maximum": 3,
+          "description": "Agent zone size multiplier (larger = agents spread further apart)"
         }
       }
     }

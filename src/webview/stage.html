@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';">
+  <link rel="stylesheet" href="{{styleUri}}">
+  <title>Claude Stage</title>
+</head>
+<body>
+  <div id="stage">
+    <div id="ground"></div>
+    <div id="figures-layer">
+      <svg id="hierarchy-svg"></svg>
+    </div>
+
+    <!-- Compact event log (bottom-right) -->
+    <div id="events-log">
+      <div id="log-header">
+        <span>Log</span>
+        <button id="log-expand-btn" title="Expand log">⊞</button>
+      </div>
+      <div id="log-entries"></div>
+    </div>
+
+    <!-- Full-screen log overlay -->
+    <div id="log-overlay" class="hidden">
+      <div id="log-overlay-header">
+        <span>Event Log</span>
+        <button id="log-collapse-btn" title="Close">✕</button>
+      </div>
+      <div id="log-overlay-entries"></div>
+    </div>
+
+    <div id="status-bar">
+      <span id="status-icon">●</span>
+      <span id="status-text">Waiting for Claude...</span>
+      <div id="token-counter">
+        <div id="token-bar-wrap"><div id="token-bar"></div></div>
+        <span id="token-count">—</span>
+      </div>
+      <button id="settings-btn" title="Open Settings">⚙</button>
+    </div>
+  </div>
+  <script>window.__CLAUDE_STAGE_CONFIG__ = {{config}};</script>
+  <script src="{{scriptUri}}"></script>
+</body>
+</html>
