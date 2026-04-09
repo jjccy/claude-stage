@@ -30,7 +30,7 @@ export class StagePanel {
       {
         enableScripts: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'media'),
+          vscode.Uri.joinPath(extensionUri, 'src', 'webview'),
           vscode.Uri.joinPath(extensionUri, 'out', 'media'),
         ],
         retainContextWhenHidden: true,
@@ -54,7 +54,7 @@ export class StagePanel {
   }
 
   private getHtml(): string {
-    const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'media');
+    const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'src', 'webview');
     const cssUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, 'stage.css'));
     const jsUri  = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'out', 'media', 'stage.js')

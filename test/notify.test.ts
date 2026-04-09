@@ -1,7 +1,7 @@
 import * as os   from 'os';
 import * as fs   from 'fs';
 import * as path from 'path';
-import { buildEvent, HookData } from '../../hooks/notify';
+import { buildEvent, HookData } from '../src/hook/notify';
 
 describe('buildEvent', () => {
 

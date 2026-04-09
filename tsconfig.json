@@ -5,12 +5,12 @@
     "outDir": "./out",
     "lib": ["ES2020"],
     "sourceMap": true,
-    "rootDir": "./src",
+    "rootDir": "./src/extension",
     "strict": true,
     "esModuleInterop": true,
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", ".vscode-test", "src/test"]
+  "include": ["src/extension/**/*"],
+  "exclude": ["node_modules", ".vscode-test"]
 }

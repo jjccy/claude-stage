@@ -39,10 +39,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && tsc -p tsconfig.hooks.json && tsc -p tsconfig.media.json",
+    "compile": "tsc -p ./ && tsc -p tsconfig.hook.json && tsc -p tsconfig.webview.json",
     "watch": "tsc -watch -p ./",
-    "watch:hooks": "tsc -watch -p tsconfig.hooks.json",
-    "watch:media": "tsc -watch -p tsconfig.media.json",
+    "watch:hook": "tsc -watch -p tsconfig.hook.json",
+    "watch:webview": "tsc -watch -p tsconfig.webview.json",
     "lint": "eslint src",
     "test": "jest"
   },

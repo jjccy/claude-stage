@@ -1,5 +1,5 @@
 import * as http from 'http';
-import { EventServer } from '../eventServer';
+import { EventServer } from '../src/extension/eventServer';
 
 const TEST_PORT = 17891;
 

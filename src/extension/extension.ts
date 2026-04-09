@@ -49,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Hot reload: watch media files and refresh the webview on change
   const mediaWatcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(context.extensionUri.fsPath, 'media/**')
+    new vscode.RelativePattern(context.extensionUri.fsPath, 'src/webview/**')
   );
   const reloadPanel = () => {
     if (StagePanel.currentPanel) {
