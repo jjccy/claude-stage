@@ -344,6 +344,14 @@ body {
   text-overflow: ellipsis;
 }
 
+/* In the full overlay, show complete text with wrapping */
+#log-overlay-entries .log-entry {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-all;
+}
+
 .log-entry.tool    { color: var(--accent-yellow); border-color: var(--accent-yellow); }
 .log-entry.agent   { color: var(--accent-green);  border-color: var(--accent-green); }
 .log-entry.user    { color: var(--accent-blue);   border-color: var(--accent-blue); }

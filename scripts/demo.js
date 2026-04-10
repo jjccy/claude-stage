@@ -87,15 +87,62 @@ async function run() {
   await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A, tool: 'Bash', phase: 'post', success: true });
   await wait(800);
 
-  // ── Scene 4: Permission prompt ────────────────────────────────────────────
-  console.log('\n4. Permission prompt');
-  await post({ type: 'permission', sessionId: SID_A, label: LABEL_A, text: 'Run destructive command?' });
-  await wait(2000);
+  // ── Scene 4: Permission prompts ───────────────────────────────────────────
+  // Real Claude Code ordering: PermissionRequest hook fires BEFORE PreToolUse.
+  //   permission event arrives first → figure shows "waiting" (Hurt animation)
+  //   tool_use arrives ~200ms later but must NOT override "waiting" state.
+  // Note: the Notification(permission_prompt) hook also fires but only carries
+  //   a message string — no tool details. Tool details come from PermissionRequest.
+  console.log('\n4a. PermissionRequest → approved');
 
-  await post({ type: 'tool_use',    sessionId: SID_A, label: LABEL_A, tool: 'Bash', phase: 'pre',  params: { command: 'rm -rf dist/' } });
-  await wait(700);
+  // Step 1: PermissionRequest hook fires (carries tool_name + tool_input)
+  await post({
+    type:      'permission',
+    sessionId: SID_A,
+    label:     LABEL_A,
+    notifType: 'permission_request',
+    tool:      'Bash',
+    params:    { command: 'rm -rf dist/' },
+    text:      'Allow Bash: rm -rf dist/',
+  });
+  await wait(200);  // in production PreToolUse follows almost immediately
+
+  // Step 2: PreToolUse fires — figure must STAY in "waiting" state (not flip to running)
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A, tool: 'Bash', phase: 'pre', params: { command: 'rm -rf dist/' } });
+  await wait(2000); // user reads the prompt...
+
+  // Step 3: User approves → tool runs → PostToolUse fires
   await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A, tool: 'Bash', phase: 'post', success: true });
-  await wait(1000);
+  await wait(900);
+
+  // ── 4b: PermissionRequest → user DENIES ──────────────────────────────────
+  console.log('\n4b. PermissionRequest → denied (tool_result error)');
+  await post({
+    type:      'permission',
+    sessionId: SID_A,
+    label:     LABEL_A,
+    notifType: 'permission_request',
+    tool:      'Write',
+    params:    { file_path: '/etc/hosts' },
+    text:      'Allow Write: /etc/hosts',
+  });
+  await wait(200);
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A, tool: 'Write', phase: 'pre', params: { file_path: '/etc/hosts' } });
+  await wait(1800);
+  // User denies — PostToolUse fires with rejection response
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A, tool: 'Write', phase: 'post', success: false });
+  await wait(900);
+
+  // ── 4c: elicitation dialog ────────────────────────────────────────────────
+  console.log('\n4c. Elicitation dialog (user choice)');
+  await post({
+    type:      'permission',
+    sessionId: SID_A,
+    label:     LABEL_A,
+    notifType: 'elicitation_dialog',
+    text:      'Which migration strategy should I use?\n1. Additive-only migration\n2. Drop and recreate table\n3. In-place ALTER TABLE',
+  });
+  await wait(2500);
 
   // ── Scene 5: Spawn three agents ───────────────────────────────────────────
   console.log('\n5. Spawning three agents');

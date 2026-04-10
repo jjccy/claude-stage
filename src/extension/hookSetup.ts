@@ -47,13 +47,43 @@ export function setupHooks(
     const scriptPath = hookScript.replace(/\\/g, '/');
 
     const HOOK_MAP: Array<[string, string]> = [
-      ['UserPromptSubmit', 'user_prompt'],
-      ['PreToolUse',       'tool_use'],
-      ['PostToolUse',      'tool_result'],
-      ['Stop',             'stop'],
-      ['Notification',     'notification'],
-      ['SessionStart',     'session_start'],
-      ['StopFailure',      'stop_failure'],
+      // ── Session lifecycle ───────────────────────────────────────────────
+      ['SessionStart',         'session_start'],
+      ['SessionEnd',           'session_end'],
+      // ── Per-turn ────────────────────────────────────────────────────────
+      ['UserPromptSubmit',     'user_prompt'],
+      ['Stop',                 'stop'],
+      ['StopFailure',          'stop_failure'],
+      // ── Tool execution ───────────────────────────────────────────────────
+      ['PreToolUse',           'tool_use'],
+      ['PostToolUse',          'tool_result'],
+      ['PostToolUseFailure',   'tool_failure'],
+      // ── Permissions ──────────────────────────────────────────────────────
+      ['PermissionRequest',    'permission_request'],
+      ['PermissionDenied',     'permission_denied'],
+      // ── Agents ───────────────────────────────────────────────────────────
+      ['SubagentStart',        'subagent_start'],
+      ['SubagentStop',         'subagent_stop'],
+      // ── Notifications ────────────────────────────────────────────────────
+      ['Notification',         'notification'],
+      // ── Context compaction ───────────────────────────────────────────────
+      ['PreCompact',           'pre_compact'],
+      ['PostCompact',          'post_compact'],
+      // ── MCP elicitation ──────────────────────────────────────────────────
+      ['Elicitation',          'elicitation'],
+      ['ElicitationResult',    'elicitation_result'],
+      // ── File & directory ─────────────────────────────────────────────────
+      ['InstructionsLoaded',   'instructions_loaded'],
+      ['FileChanged',          'file_changed'],
+      ['CwdChanged',           'cwd_changed'],
+      // ── Config & worktrees ───────────────────────────────────────────────
+      ['ConfigChange',         'config_change'],
+      ['WorktreeCreate',       'worktree_create'],
+      ['WorktreeRemove',       'worktree_remove'],
+      // ── Team / tasks ─────────────────────────────────────────────────────
+      ['TeammateIdle',         'teammate_idle'],
+      ['TaskCreated',          'task_created'],
+      ['TaskCompleted',        'task_completed'],
     ];
 
     for (const [hookName, eventType] of HOOK_MAP) {

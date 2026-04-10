@@ -6,7 +6,6 @@ export interface ClaudeEvent {
     | 'tool_use'       // PreToolUse hook
     | 'tool_result'    // PostToolUse hook
     | 'agent_done'     // PostToolUse hook, tool=Agent (derived)
-    | 'thinking'       // reserved — no hook yet
     | 'user_prompt'    // UserPromptSubmit hook
     | 'permission'     // Notification hook, notification_type=permission_prompt|elicitation_dialog (derived)
     | 'notification'   // Notification hook (auth_success and other types)
@@ -15,9 +14,7 @@ export interface ClaudeEvent {
     | 'stop_failure';  // StopFailure hook (rate_limit, billing_error, etc.)
   sessionId?: string;    // Claude Code session UUID (from session_id in hook stdin)
   tool?: string;         // Read, Edit, Bash, Grep, Glob, Agent, Write, etc.
-  phase?: 'pre' | 'post';
   params?: Record<string, unknown>;
-  output?: unknown;
   text?: string;
   success?: boolean;     // tool_result: false when is_error=true
   tokens?: { input: number; output: number }; // stop: cumulative token usage

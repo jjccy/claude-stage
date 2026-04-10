@@ -41,25 +41,36 @@
   }
 
   interface StageEvent {
-    type:        string;
-    sessionId?:  string;
-    label?:      string;
-    tool?:       string;
-    phase?:      string;
-    params?:     Record<string, unknown>;
-    text?:       string;
-    success?:    boolean;
-    tokens?:     { input: number; output: number };
-    notifType?:  string;
+    type:         string;
+    sessionId?:   string;
+    label?:       string;
+    tool?:        string;
+    params?:      Record<string, unknown>;
+    text?:        string;
+    success?:     boolean;
+    tokens?:      { input: number; output: number };
+    notifType?:   string;
+    model?:       string;   // SessionStart: Claude model ID
+    permMode?:    string;   // permission_mode from common fields
+    agentId?:     string;   // SubagentStart / SubagentStop
+    agentType?:   string;   // SubagentStart / SubagentStop
+    error?:       string;   // PostToolUseFailure
+    isInterrupt?: boolean;  // PostToolUseFailure
+    trigger?:     string;   // PreCompact / PostCompact: "manual"|"auto"
+    mcpServer?:   string;   // Elicitation / ElicitationResult
+    mcpAction?:   string;   // ElicitationResult: "accept"|"decline"|"cancel"
+    taskSubject?: string;   // TaskCreated / TaskCompleted
   }
 
   interface Session {
-    claudeId:    string;
-    label:       string;
-    agentCount:  number;
-    lastActive:  number;
-    slotIndex:   number;
-    agentLayout: ForceLayout;
+    claudeId:          string;
+    label:             string;
+    agentCount:        number;
+    lastActive:        number;
+    slotIndex:         number;
+    agentLayout:       ForceLayout;
+    permissionPending: boolean;   // permission_prompt arrived; tool_use must not override "waiting"
+    toolWatchdog?:     number;    // timeout id — resets stuck "running" figure if tool_result never arrives
   }
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -265,7 +276,7 @@
         AGENT_ZONE_HW,
         AGENT_ZONE_HH,
       );
-      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout });
+      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout, permissionPending: false });
     }
     return sessions.get(sessionId)!;
   }
@@ -277,6 +288,7 @@
   function removeSession(sessionId: string): void {
     const session = sessions.get(sessionId);
     if (!session) return;
+    if (session.toolWatchdog !== undefined) clearTimeout(session.toolWatchdog);
     figures.forEach((_, id) => {
       if (id.startsWith(`agent:${sessionId}:`)) removeFigureAnimated(id);
     });
@@ -468,6 +480,18 @@
     return first != null ? truncate(String(first), 25) : '';
   }
 
+  /** Full param value for log entries — no truncation. */
+  function getToolParamLog(tool: string, params?: Record<string, unknown>): string {
+    if (!params) return '';
+    if (['Read', 'Write', 'Edit'].includes(tool)) {
+      return String(params['file_path'] ?? params['path'] ?? '');
+    }
+    if (tool === 'Bash') return String(params['command'] ?? '');
+    if (['Grep', 'Glob'].includes(tool)) return String(params['pattern'] ?? '');
+    const first = Object.values(params)[0];
+    return first != null ? String(first) : '';
+  }
+
   // ── Event handler ─────────────────────────────────────────────────────────
 
   function handleEvent(event: StageEvent): void {
@@ -494,16 +518,8 @@
         setState(claude, 'thinking');
         showBubble(claude, '...', true);
         setStatus(`[${sLabel}] User sent a request`, 'active');
-        addLog(`USER → ${sLabel}: ${truncate(event.text ?? '', 40)}`, 'user');
+        addLog(`USER → ${sLabel}: ${event.text ?? ''}`, 'user');
         setTimeout(() => clearBubble(user), 3000);
-        break;
-      }
-
-      case 'thinking': {
-        setState(claude, 'thinking');
-        showBubble(claude, event.text ? truncate(event.text, 25) : '💭', true);
-        setStatus(`[${sLabel}] Thinking...`, 'thinking');
-        addLog(`THINKING [${sLabel}]: ${truncate(event.text ?? '', 40)}`, 'claude');
         break;
       }
 
@@ -538,16 +554,38 @@
           addLog(`AGENT [${sLabel}]: spawning #${session.agentCount}`, 'agent');
 
         } else {
-          setState(claude, action);
-          const param = getToolParam(tool, event.params);
-          showBubble(claude, `${emoji} ${param}`);
-          setStatus(`[${sLabel}] ${tool}: ${param}`, 'active');
-          addLog(`TOOL [${sLabel}]: ${tool} ${param}`, 'tool');
+          const param    = getToolParam(tool, event.params);
+          const paramLog = getToolParamLog(tool, event.params);
+
+          if (session.permissionPending) {
+            // permission_prompt fires before PreToolUse — keep "waiting" state and
+            // update the bubble to show which tool is awaiting approval.
+            showBubble(claude, `⚠️ ${emoji} ${param || tool}`);
+            setStatus(`[${sLabel}] Awaiting approval: ${tool} ${param}`, 'error');
+          } else {
+            setState(claude, action);
+            showBubble(claude, `${emoji} ${param}`);
+            setStatus(`[${sLabel}] ${tool}: ${param}`, 'active');
+          }
+          addLog(`TOOL [${sLabel}]: ${tool} ${paramLog}`, 'tool');
+
+          // Watchdog: if tool_result never arrives (e.g. hook POST failed silently),
+          // reset the figure after 5 minutes so it doesn't stay stuck in "running".
+          if (session.toolWatchdog !== undefined) clearTimeout(session.toolWatchdog);
+          session.toolWatchdog = window.setTimeout(() => {
+            session.toolWatchdog = undefined;
+            session.permissionPending = false;
+            setState(claude, 'idle');
+            clearBubble(claude);
+            addLog(`WATCHDOG [${sLabel}]: no result for ${tool}, resetting`, 'error');
+          }, 5 * 60 * 1000);
         }
         break;
       }
 
       case 'tool_result': {
+        session.permissionPending = false;
+        if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
         const success = event.success !== false;
         flashFigure(claude, success);
         setState(claude, 'thinking');
@@ -561,12 +599,34 @@
       }
 
       case 'permission': {
-        // Fires via Notification hook (notification_type: permission_prompt |
-        // elicitation_dialog) — Claude is waiting for user approval.
+        // Fires via PermissionRequest hook (has tool details) or Notification hook
+        // (permission_prompt / elicitation_dialog, message only).
+        // Claude Code does NOT fire PostToolUse when the user denies via the
+        // permission dialog — the tool is blocked before execution.  So tool_result
+        // will never arrive after a denial.  Use a short watchdog: if tool_result
+        // hasn't come in within 15 s the user has already responded and Claude is
+        // now thinking, so flip to "thinking" so the figure doesn't stay frozen.
+        session.permissionPending = true;
+        if (session.toolWatchdog !== undefined) clearTimeout(session.toolWatchdog);
+        session.toolWatchdog = window.setTimeout(() => {
+          session.toolWatchdog    = undefined;
+          session.permissionPending = false;
+          setState(claude, 'thinking');
+          clearBubble(claude);
+          addLog(`PERM [${sLabel}]: user responded, Claude processing…`, 'claude');
+        }, 15_000);
+
+        const permTool = event.tool ? ` [${event.tool}]` : '';
         setState(claude, 'waiting');
-        showBubble(claude, `⚠️ ${event.text ?? 'Permission needed'}`);
-        setStatus(`[${sLabel}] Waiting for permission…`, 'error');
-        addLog(`PERM [${sLabel}]: ${event.text ?? ''}`, 'error');
+        showBubble(claude, `⚠️ ${truncate(event.text ?? 'Permission needed', 40)}`);
+        setStatus(`[${sLabel}] Waiting for permission${permTool}…`, 'error');
+        addLog(`PERM [${sLabel}]${permTool}: ${event.text ?? ''}`, 'error');
+        if (event.params) {
+          const detail = Object.entries(event.params)
+            .map(([k, v]) => `  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+            .join('\n');
+          if (detail) addLog(detail, 'error');
+        }
         break;
       }
 
@@ -574,15 +634,13 @@
         // Other Notification hook types (e.g. auth_success).
         const icon = event.notifType === 'auth_success' ? '🔑' : '💬';
         showBubble(claude, `${icon} ${truncate(event.text ?? 'Notification', 32)}`);
-        setStatus(`[${sLabel}] ${truncate(event.text ?? 'Notification', 45)}`, 'active');
-        addLog(`NOTIFY [${sLabel}]: ${truncate(event.text ?? '', 50)}`, 'claude');
+        setStatus(`[${sLabel}] ${truncate(event.text ?? 'Notification', 60)}`, 'active');
+        addLog(`NOTIFY [${sLabel}]: ${event.text ?? ''}`, 'claude');
         setTimeout(() => clearBubble(claude), 3000);
         break;
       }
 
       case 'session_start': {
-        // SessionStart hook fires when a Claude session begins (startup, resume,
-        // context compact, or /clear).  Ensure the figure exists and wave hello.
         const src      = event.text ?? 'startup';
         const greeting = src === 'resume'  ? '↩ Resumed'
                        : src === 'compact' ? '📦 Compacted'
@@ -590,19 +648,88 @@
                        :                    '👋 Ready';
         setState(claude, 'thinking');
         showBubble(claude, greeting);
-        setStatus(`[${sLabel}] Session ${src}`, '');
-        addLog(`SESSION [${sLabel}]: ${src}`, 'claude');
+        const modelTag = event.model ? ` (${event.model.replace('claude-', '')})` : '';
+        setStatus(`[${sLabel}] Session ${src}${modelTag}`, '');
+        addLog(`SESSION [${sLabel}]: ${src}${modelTag}`, 'claude');
         setTimeout(() => { setState(claude, 'idle'); clearBubble(claude); }, 2500);
+        break;
+      }
+
+      case 'session_end': {
+        // SessionEnd fires when the session terminates cleanly.  Remove it from the stage.
+        const reason = event.text ?? 'other';
+        addLog(`END [${sLabel}]: session ended (${reason})`, 'claude');
+        removeSession(sid);
+        setTimeout(() => updateHierarchyLines(), 600);
+        break;
+      }
+
+      case 'tool_failure': {
+        // PostToolUseFailure: the tool itself crashed / exited non-zero.
+        // Distinct from PostToolUse with is_error (which is a bad but successful response).
+        session.permissionPending = false;
+        if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
+        flashFigure(claude, false);
+        setState(claude, 'thinking');
+        clearBubble(claude);
+        const failLabel = event.isInterrupt ? 'interrupted' : 'failed';
+        setStatus(`[${sLabel}] ${event.tool ?? 'tool'} ${failLabel}`, 'error');
+        addLog(`FAIL [${sLabel}]: ${event.tool ?? 'tool'} ${failLabel} — ${event.error ?? ''}`, 'error');
+        break;
+      }
+
+      case 'permission_denied': {
+        // PermissionDenied: auto-mode classifier blocked a tool (not user manual denial).
+        flashFigure(claude, false);
+        setState(claude, 'thinking');
+        showBubble(claude, `🚫 ${truncate(event.tool ?? 'tool', 20)}`);
+        setStatus(`[${sLabel}] Auto-denied: ${event.tool ?? 'tool'}`, 'error');
+        addLog(`DENIED [${sLabel}] [${event.tool ?? 'tool'}]: ${event.text ?? ''}`, 'error');
+        if (event.params) {
+          const detail = Object.entries(event.params)
+            .map(([k, v]) => `  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+            .join('\n');
+          if (detail) addLog(detail, 'error');
+        }
+        setTimeout(() => clearBubble(claude), 3000);
+        break;
+      }
+
+      case 'subagent_start': {
+        // SubagentStart gives us agent_id + agent_type at spawn time.
+        // The agent figure was already created by PreToolUse for "Agent".
+        // Use this event to update the figure label with the agent type.
+        const typeLabel = event.agentType ? ` (${event.agentType})` : '';
+        addLog(`AGENT [${sLabel}]: spawned${typeLabel} id=${event.agentId?.slice(0, 8) ?? '?'}`, 'agent');
+        break;
+      }
+
+      case 'subagent_stop': {
+        // SubagentStop: agent finished, carries last_assistant_message — the agent's output.
+        // Match by agentId if possible; otherwise fall back to prompt-matching (agent_done).
+        const typeLabel = event.agentType ? ` (${event.agentType})` : '';
+        const snippet   = event.text ? truncate(event.text, 80) : '—';
+        addLog(`AGENT DONE [${sLabel}]${typeLabel}: ${snippet}`, 'agent');
+        // Show the summary in the matching agent's bubble if it's still on stage.
+        if (event.agentId) {
+          figures.forEach((fig, id) => {
+            if (id.startsWith(`agent:${sid}:`) && fig.prompt?.includes(event.agentId ?? '__none__')) {
+              showBubble(fig, `✓ ${truncate(event.text ?? 'done', 30)}`);
+            }
+          });
+        }
         break;
       }
 
       case 'stop_failure': {
         // StopFailure hook fires when the response was cut short by an error
         // (rate limit, billing, auth failure, etc.).
+        session.permissionPending = false;
+        if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
         setState(claude, 'waiting');
-        showBubble(claude, `⚠️ ${event.text ? truncate(event.text, 30) : 'Stopped with error'}`);
+        showBubble(claude, `⚠️ ${truncate(event.text ?? 'Stopped with error', 40)}`);
         setStatus(`[${sLabel}] Stop error`, 'error');
-        addLog(`STOP ERR [${sLabel}]: ${truncate(event.text ?? 'failed', 50)}`, 'error');
+        addLog(`STOP ERR [${sLabel}]: ${event.text ?? 'failed'}`, 'error');
         setTimeout(() => { setState(claude, 'idle'); clearBubble(claude); }, 5000);
         break;
       }
@@ -640,7 +767,92 @@
         break;
       }
 
+      case 'pre_compact': {
+        // PreCompact fires before context compaction starts.
+        const how = event.trigger === 'manual' ? 'manual' : 'auto';
+        setState(claude, 'thinking');
+        showBubble(claude, `📦 Compacting (${how})…`);
+        setStatus(`[${sLabel}] Compacting context…`, 'thinking');
+        addLog(`COMPACT [${sLabel}]: starting (${how})`, 'claude');
+        break;
+      }
+
+      case 'post_compact': {
+        // PostCompact fires after compaction completes; text has before→after token summary.
+        showBubble(claude, '📦 Compacted');
+        setStatus(`[${sLabel}] Context compacted`, '');
+        addLog(`COMPACT [${sLabel}]: done ${event.text ?? ''}`, 'claude');
+        setTimeout(() => clearBubble(claude), 2500);
+        break;
+      }
+
+      case 'elicitation_result': {
+        // MCP elicitation result — clear the permission watchdog, log what the user did.
+        session.permissionPending = false;
+        if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
+        setState(claude, 'thinking');
+        clearBubble(claude);
+        const icon = event.mcpAction === 'accept' ? '✓' : '✗';
+        setStatus(`[${sLabel}] MCP ${event.mcpServer ?? ''}: ${event.mcpAction ?? 'responded'}`, 'thinking');
+        addLog(`ELICIT RESULT [${sLabel}]: ${icon} ${event.text ?? ''}`, 'tool');
+        break;
+      }
+
+      case 'cwd_changed': {
+        // CwdChanged — update the figure's label to reflect the new directory.
+        session.label = (event.label ?? event.text ?? '').replace(/.*[\\/]/, '') || session.label;
+        const claudeFig = figures.get(session.claudeId);
+        if (claudeFig) {
+          const labelEl = claudeFig.el.querySelector<HTMLElement>('.label');
+          if (labelEl) labelEl.textContent = session.label.toUpperCase();
+        }
+        addLog(`CWD [${sLabel}]: ${event.text ?? ''}`, 'claude');
+        break;
+      }
+
+      case 'instructions_loaded': {
+        addLog(`RULES [${sLabel}]: ${event.text ?? ''}`, 'claude');
+        break;
+      }
+
+      case 'file_changed': {
+        addLog(`FILE [${sLabel}]: ${event.text ?? ''}`, 'tool');
+        break;
+      }
+
+      case 'config_change': {
+        addLog(`CONFIG [${sLabel}]: ${event.text ?? ''}`, 'claude');
+        break;
+      }
+
+      case 'worktree_create': {
+        addLog(`WORKTREE [${sLabel}]: created ${event.text ?? ''}`, 'agent');
+        break;
+      }
+
+      case 'worktree_remove': {
+        addLog(`WORKTREE [${sLabel}]: removed ${event.text ?? ''}`, 'agent');
+        break;
+      }
+
+      case 'teammate_idle': {
+        addLog(`TEAMMATE [${sLabel}]: ${event.text ?? 'teammate'} going idle`, 'agent');
+        break;
+      }
+
+      case 'task_created': {
+        addLog(`TASK [${sLabel}]: created "${event.taskSubject ?? event.text ?? ''}"`, 'agent');
+        break;
+      }
+
+      case 'task_completed': {
+        addLog(`TASK DONE [${sLabel}]: "${event.taskSubject ?? event.text ?? ''}"`, 'agent');
+        break;
+      }
+
       case 'stop': {
+        session.permissionPending = false;
+        if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
         setState(claude, 'idle');
 
         // Sub-agents fire their own Stop events while the parent is still running.

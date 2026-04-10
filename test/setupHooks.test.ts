@@ -35,16 +35,46 @@ describe('setupHooks', () => {
     expect(content).toContain('const PORT = 8000');
   });
 
-  it('creates settings.json with all seven hook types', () => {
+  it('creates settings.json with all twenty-six hook types', () => {
     setupHooks(extensionDir, 7891, tempDir);
     const s = readSettings(tempDir);
+    // Session
+    expect(s.hooks.SessionStart).toHaveLength(1);
+    expect(s.hooks.SessionEnd).toHaveLength(1);
+    // Per-turn
+    expect(s.hooks.UserPromptSubmit).toHaveLength(1);
+    expect(s.hooks.Stop).toHaveLength(1);
+    expect(s.hooks.StopFailure).toHaveLength(1);
+    // Tool execution
     expect(s.hooks.PreToolUse).toHaveLength(1);
     expect(s.hooks.PostToolUse).toHaveLength(1);
-    expect(s.hooks.Stop).toHaveLength(1);
-    expect(s.hooks.UserPromptSubmit).toHaveLength(1);
+    expect(s.hooks.PostToolUseFailure).toHaveLength(1);
+    // Permissions
+    expect(s.hooks.PermissionRequest).toHaveLength(1);
+    expect(s.hooks.PermissionDenied).toHaveLength(1);
+    // Agents
+    expect(s.hooks.SubagentStart).toHaveLength(1);
+    expect(s.hooks.SubagentStop).toHaveLength(1);
+    // Notifications
     expect(s.hooks.Notification).toHaveLength(1);
-    expect(s.hooks.SessionStart).toHaveLength(1);
-    expect(s.hooks.StopFailure).toHaveLength(1);
+    // Compaction
+    expect(s.hooks.PreCompact).toHaveLength(1);
+    expect(s.hooks.PostCompact).toHaveLength(1);
+    // MCP elicitation
+    expect(s.hooks.Elicitation).toHaveLength(1);
+    expect(s.hooks.ElicitationResult).toHaveLength(1);
+    // File & directory
+    expect(s.hooks.InstructionsLoaded).toHaveLength(1);
+    expect(s.hooks.FileChanged).toHaveLength(1);
+    expect(s.hooks.CwdChanged).toHaveLength(1);
+    // Config & worktrees
+    expect(s.hooks.ConfigChange).toHaveLength(1);
+    expect(s.hooks.WorktreeCreate).toHaveLength(1);
+    expect(s.hooks.WorktreeRemove).toHaveLength(1);
+    // Team / tasks
+    expect(s.hooks.TeammateIdle).toHaveLength(1);
+    expect(s.hooks.TaskCreated).toHaveLength(1);
+    expect(s.hooks.TaskCompleted).toHaveLength(1);
   });
 
   it('hook commands reference the stable script path with correct event type', () => {
@@ -76,13 +106,24 @@ describe('setupHooks', () => {
     setupHooks(extensionDir, 7891, tempDir);
 
     const s = readSettings(tempDir);
-    expect(s.hooks.PreToolUse).toHaveLength(1);
-    expect(s.hooks.PostToolUse).toHaveLength(1);
-    expect(s.hooks.Stop).toHaveLength(1);
-    expect(s.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(s.hooks.Notification).toHaveLength(1);
+    // Spot-check a representative sample across all categories
     expect(s.hooks.SessionStart).toHaveLength(1);
-    expect(s.hooks.StopFailure).toHaveLength(1);
+    expect(s.hooks.SessionEnd).toHaveLength(1);
+    expect(s.hooks.PreToolUse).toHaveLength(1);
+    expect(s.hooks.PostToolUseFailure).toHaveLength(1);
+    expect(s.hooks.PermissionRequest).toHaveLength(1);
+    expect(s.hooks.PermissionDenied).toHaveLength(1);
+    expect(s.hooks.SubagentStart).toHaveLength(1);
+    expect(s.hooks.SubagentStop).toHaveLength(1);
+    expect(s.hooks.PreCompact).toHaveLength(1);
+    expect(s.hooks.PostCompact).toHaveLength(1);
+    expect(s.hooks.Elicitation).toHaveLength(1);
+    expect(s.hooks.ElicitationResult).toHaveLength(1);
+    expect(s.hooks.InstructionsLoaded).toHaveLength(1);
+    expect(s.hooks.CwdChanged).toHaveLength(1);
+    expect(s.hooks.WorktreeCreate).toHaveLength(1);
+    expect(s.hooks.TaskCreated).toHaveLength(1);
+    expect(s.hooks.TaskCompleted).toHaveLength(1);
   });
 
   it('preserves other top-level settings keys', () => {

@@ -45,12 +45,6 @@ class ForceLayout {
     this.simulate();
   }
 
-  /** Remove item at index and re-settle remaining items. */
-  removeAt(index: number): void {
-    this.items.splice(index, 1);
-    if (this.items.length > 0) this.simulate();
-  }
-
   /** Remove all items without simulation. */
   clear(): void {
     this.items = [];
