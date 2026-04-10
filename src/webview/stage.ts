@@ -3,7 +3,7 @@
 
 // ── Claude Stage – main orchestration ────────────────────────────────────────
 // Receives postMessage events from the VS Code extension and animates
-// pixel-art figures on the stage.  SpriteRenderer, ANIM, and ForceLayout
+// pixel-art figures on the stage.  SpriteRenderer and ForceLayout
 // are defined in sprite.ts / force.ts, concatenated before this file.
 
 (function () {
@@ -11,7 +11,8 @@
   // ── Config (injected by extension) ────────────────────────────────────────
 
   const cfg = (window as any).__CLAUDE_STAGE_CONFIG__ ?? {};
-  const figureDensity: number = cfg.figureDensity ?? 1;
+  const figureDensity: number    = cfg.figureDensity ?? 1;
+  const spritesBaseUrl: string   = cfg.spritesBaseUrl ?? '';
   if (cfg.theme && cfg.theme !== 'default') {
     document.body.classList.add(`theme-${cfg.theme}`);
   }
@@ -25,17 +26,18 @@
   interface Slot { x: number; y: number }
 
   interface Figure {
-    el:       HTMLElement;
-    canvas:   HTMLCanvasElement;
-    ctx:      CanvasRenderingContext2D;
-    renderer: SpriteRenderer;
-    role:     string;
-    state:    string;
-    frameIdx: number;
-    timer?:   number;
-    bubble?:  HTMLElement | null;
-    slot:     Slot;   // stored at creation; used for SVG line drawing
-    prompt?:  string; // agent task prompt — used to match agent_done events
+    el:        HTMLElement;
+    canvas:    HTMLCanvasElement;
+    ctx:       CanvasRenderingContext2D;
+    renderer:  SpriteRenderer;
+    role:      string;
+    state:     string;
+    frameIdx:  number;
+    timer?:    number;
+    bubble?:   HTMLElement | null;
+    stateEl?:  HTMLElement;   // small state indicator below the name label
+    slot:      Slot;
+    prompt?:   string;
   }
 
   interface StageEvent {
@@ -85,7 +87,7 @@
   };
 
   const TOOL_ACTION: Record<string, string> = {
-    Read: 'reading', Write: 'writing', Edit: 'writing', Bash: 'running',
+    Read: 'thinking', Write: 'writing', Edit: 'writing', Bash: 'running',
     Grep: 'searching', Glob: 'searching', Agent: 'spawning',
     WebFetch: 'searching', WebSearch: 'searching',
   };
@@ -121,8 +123,8 @@
 
     const canvas   = document.createElement('canvas');
     canvas.className = 'sprite';
-    canvas.width   = SW * SCALE;
-    canvas.height  = SH * SCALE;
+    canvas.width   = SW * SCALE;   // 128 px
+    canvas.height  = SH * SCALE;   // 128 px
     wrap.appendChild(canvas);
 
     const shadow = document.createElement('div');
@@ -132,9 +134,14 @@
     labelEl.className   = 'label';
     labelEl.textContent = label;
 
+    const stateEl = document.createElement('div');
+    stateEl.className   = 'state-label';
+    stateEl.textContent = 'idle';
+
     el.appendChild(wrap);
     el.appendChild(shadow);
     el.appendChild(labelEl);
+    el.appendChild(stateEl);
     return el;
   }
 
@@ -156,10 +163,11 @@
       const el       = buildFigure(id, role, label);
       const canvas   = el.querySelector<HTMLCanvasElement>('.sprite')!;
       const ctx      = canvas.getContext('2d')!;
-      const renderer = new SpriteRenderer(role);
+      const renderer = new SpriteRenderer(role, spritesBaseUrl);
       placeFigure(el, slot);
       figuresLayer.appendChild(el);
-      const fig: Figure = { el, canvas, ctx, renderer, role, state: 'idle', frameIdx: 0, slot };
+      const stateEl = el.querySelector<HTMLElement>('.state-label') ?? undefined;
+      const fig: Figure = { el, canvas, ctx, renderer, role, state: 'idle', frameIdx: 0, slot, stateEl };
       figures.set(id, fig);
       startAnim(fig);
     }
@@ -183,12 +191,12 @@
 
   function startAnim(fig: Figure): void {
     if (fig.timer !== undefined) clearTimeout(fig.timer);
-    const sched  = ANIM[fig.state] ?? ANIM['idle'];
     fig.frameIdx = 0;
     function tick(): void {
-      fig.renderer.draw(fig.ctx, sched.frames[fig.frameIdx % sched.frames.length]);
+      const state = fig.state;
+      fig.renderer.draw(fig.ctx, state, fig.frameIdx % fig.renderer.frameCount(state));
       fig.frameIdx++;
-      fig.timer = window.setTimeout(tick, sched.ms);
+      fig.timer = window.setTimeout(tick, fig.renderer.ms(state));
     }
     tick();
   }
@@ -196,6 +204,7 @@
   function setState(fig: Figure, state: string): void {
     fig.state = state;
     fig.el.classList.toggle('spawning', state === 'spawning');
+    if (fig.stateEl) fig.stateEl.textContent = state;
     startAnim(fig);
   }
 
@@ -277,19 +286,39 @@
     setTimeout(() => updateHierarchyLines(), 600);
   }
 
-  // Inactivity cleanup: every minute, remove sessions idle >10 min, keep ≥1.
+  // Inactivity cleanup: every minute, remove sessions idle >10 min.
   setInterval(() => {
-    if (sessions.size <= 1) return;
     const now     = Date.now();
     const expired = [...sessions.entries()]
       .filter(([, s]) => now - s.lastActive > INACTIVITY_MS)
-      .map(([id]) => id)
-      .slice(0, sessions.size - 1);
+      .map(([id]) => id);
     expired.forEach(id => {
       addLog(`TIMEOUT: ${sessionLabel(id)} removed (10 min idle)`, 'error');
       removeSession(id);
     });
   }, 60_000);
+
+  // ── Trim: keep only the latest session, clear all logs ───────────────────
+
+  function trimToLatest(): void {
+    if (sessions.size === 0) return;
+    let latestId   = '';
+    let latestTime = -Infinity;
+    sessions.forEach((session, id) => {
+      if (session.lastActive > latestTime) {
+        latestTime = session.lastActive;
+        latestId   = id;
+      }
+    });
+    [...sessions.keys()].forEach(id => {
+      if (id !== latestId) removeSession(id);
+    });
+    logBuffer.length = 0;
+    logEntries.innerHTML = '';
+    const overlayEntries = document.getElementById('log-overlay-entries');
+    if (overlayEntries) overlayEntries.innerHTML = '';
+    addLog('TRIM: kept latest session, logs cleared', '');
+  }
 
   // ── Hierarchy lines ───────────────────────────────────────────────────────
 
@@ -404,6 +433,7 @@
 
   document.getElementById('log-expand-btn')?.addEventListener('click', openLogOverlay);
   document.getElementById('log-collapse-btn')?.addEventListener('click', closeLogOverlay);
+  document.getElementById('trim-btn')?.addEventListener('click', trimToLatest);
   document.getElementById('settings-btn')?.addEventListener('click', () => {
     vscodeApi?.postMessage({ command: 'openSettings' });
   });
@@ -644,6 +674,8 @@
     const data = msg.data as { command: string; event?: StageEvent };
     if (data.command === 'event' && data.event) {
       handleEvent(data.event);
+    } else if (data.command === 'trim') {
+      trimToLatest();
     } else if (data.command === 'clear') {
       figures.forEach(fig => {
         if (fig.timer !== undefined) clearTimeout(fig.timer);
@@ -661,9 +693,13 @@
       totalOutputTokens       = 0;
       const counter = document.getElementById('token-counter');
       if (counter) counter.style.display = 'none';
+      ensureFigure('user', 'user', 'User', USER_SLOT);
       setStatus('Stage cleared', '');
     }
   });
+
+  // Always show the user figure from the start.
+  ensureFigure('user', 'user', 'User', USER_SLOT);
 
   setStatus('Waiting for Claude Code events...', '');
 

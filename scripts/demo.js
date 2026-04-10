@@ -164,9 +164,25 @@ async function run() {
   await post({ type: 'stop_failure', sessionId: SID_A, label: LABEL_A, text: 'Rate limit exceeded — try again shortly' });
   await wait(2000);
 
+  // ── Scene 12: Second session — then trim to latest ────────────────────────
+  console.log('\n12. Second session starts, then trim keeps only the latest');
+  await post({ type: 'session_start', sessionId: SID_B, label: LABEL_B, text: 'startup' });
+  await wait(800);
+  await post({ type: 'user_prompt',   sessionId: SID_B, label: LABEL_B, text: 'Quick question' });
+  await wait(800);
+  await post({ type: 'stop',          sessionId: SID_B, label: LABEL_B, tokens: { input: 800, output: 200 } });
+  await wait(1000);
+  // Use the VS Code command to trim all sessions except the most-recently-active one
+  // and clear all logs: run  "Claude Stage: Trim Sessions"  from the command palette.
+  console.log('  → Run "Claude Stage: Trim Sessions" from the command palette');
+  console.log('    (or click the ⊘ button in the stage status bar)');
+  await wait(1500);
+
   console.log('\n─────────────────────────────────────────────────────────\n');
   console.log('Done. Run  node scripts/demo.js  again to replay.');
-  console.log('Use the "Claude Stage: Clear Stage" command to reset.\n');
+  console.log('Commands:');
+  console.log('  "Claude Stage: Clear Stage"    — remove all figures and reset');
+  console.log('  "Claude Stage: Trim Sessions"  — keep latest session, clear logs\n');
 }
 
 run().catch(console.error);

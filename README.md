@@ -30,17 +30,19 @@ No manual setup needed.
 
 ## Figures & animations
 
+Three distinct pixel-art characters: a **blue alien** for the User, a **human warrior** (LPC) for Claude, and an **orc** (LPC) for each spawned Agent. Claude faces left at rest and turns right when actively working; the current animation state appears as a small italic label below the name.
+
 | Event | Who | What you see |
 |-------|-----|--------------|
-| User sends a message | User figure | Speech bubble with prompt text |
-| Claude is thinking | Claude figure | Head bob + thought cloud |
-| Read / Write / Edit | Claude figure | Tool emoji + filename in bubble |
-| Bash command | Claude figure | Walking legs animation |
-| Grep / Glob | Claude figure | Head pan (searching) |
-| Agent spawned | New agent figure | Spawn animation; force layout spreads all agents |
-| Agent completes | Agent figure | Flash, idle briefly, then fades |
-| Permission needed | Claude figure | Raised hand, waiting state |
-| Response complete | Claude figure | Smile + ✓ Done |
+| User sends a message | Blue alien | Speech bubble with prompt text |
+| Claude is thinking | Claude (faces right) | Walking animation + thought cloud |
+| Read / Grep / Glob / WebSearch | Claude (faces right) | Tool emoji + param in bubble |
+| Write / Edit | Claude (faces right) | Slash animation |
+| Bash command | Claude (faces right) | Thrust animation |
+| Agent spawned | New orc figure | Cast animation → walking; force layout spreads all agents |
+| Agent completes | Orc figure | Flash ✓/✗, then fades |
+| Permission / stop error | Claude (faces left) | Hurt animation, ⚠️ bubble |
+| Response complete | Claude (faces left) | ✓ Done bubble |
 
 ## Event log
 
@@ -77,4 +79,5 @@ Changing any setting reloads the panel automatically. Click **⚙** in the stage
 
 - **Claude Stage: Open Stage** — open or focus the stage panel
 - **Claude Stage: Clear Stage** — remove all figures and reset
+- **Claude Stage: Trim Sessions** — keep only the most-recently-active Claude session and clear all logs (same as the ⊘ button in the status bar)
 - **Claude Stage: Settings** — open VS Code settings filtered to Claude Stage

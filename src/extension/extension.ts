@@ -40,6 +40,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         StagePanel.currentPanel.clear();
       }
     }),
+    vscode.commands.registerCommand('claude-stage.trimSessions', () => {
+      if (StagePanel.currentPanel) {
+        StagePanel.currentPanel.trim();
+      }
+    }),
     vscode.commands.registerCommand('claude-stage.openSettings', () => {
       vscode.commands.executeCommand('workbench.action.openSettings', 'claudeStage');
     }),

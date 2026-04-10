@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';">
+        content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; img-src {{cspSource}};">
   <link rel="stylesheet" href="{{styleUri}}">
   <title>Claude Stage</title>
 </head>
@@ -40,6 +40,7 @@
         <div id="token-bar-wrap"><div id="token-bar"></div></div>
         <span id="token-count">—</span>
       </div>
+      <button id="trim-btn" title="Keep latest session, clear logs">⊘</button>
       <button id="settings-btn" title="Open Settings">⚙</button>
     </div>
   </div>

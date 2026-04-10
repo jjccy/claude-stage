@@ -1,240 +1,161 @@
 // ── Sprite rendering ──────────────────────────────────────────────────────────
-// Pixel-art sprite constants, frame data, palette, renderer, and animation
-// schedule.  Compiled into the concatenated out/media/stage.js via outFile.
+// Supports two animation formats:
+//   "sheet" – LPC 64×64 sprite sheets (Claude, Agent) rendered at 2×
+//   "seq"   – individual PNG sequences (User / blue alien)
+//
+// LPC Attribution: LPC Character Bases v2 — CC-BY-SA 3.0
+//   Human Male (Claude), Lizardman Male (Agent)
+//   Authors: Benjamin K. Smith, Stephen Challener, and LPC contributors.
+// Alien Blue: CraftPix.net — OGA-BY 3.0
 
-const SCALE = 3;   // canvas px per sprite pixel
-const SW    = 12;  // sprite width  (sprite-px)
-const SH    = 20;  // sprite height (sprite-px)
+const LPC_FRAME_SIZE = 64;
+const SCALE          = 2;           // LPC sprites rendered at 2× (128 px canvas)
+const SW             = LPC_FRAME_SIZE;  // exposed for stage.ts
+const SH             = LPC_FRAME_SIZE;
 
-const SKIN = '#FFDBA4';
-const EYE  = '#2B2B2B';
+// LPC direction rows (North=0, West=1, South=2, East=3)
+const DIR_WEST  = 1;   // left-facing
+const DIR_EAST  = 3;   // right-facing — Claude uses this when actively working
+const DIR_NORTH = 0;   // used for Hurt animation
 
-interface Pal { b: string; d: string }
+// ── Animation definition types ────────────────────────────────────────────────
 
-// Role → bright / dark body colours
-const PALS: Record<string, Pal> = {
-  user:   { b: '#4F9EFF', d: '#1F6FEB' },
-  claude: { b: '#BC8CFF', d: '#8B5CF6' },
-  agent:  { b: '#3FB950', d: '#238636' },
-};
-
-// 12-char rows per frame.
-// . = transparent  s = skin  e = eye  b = body  d = dark body
-const RAW: Record<string, string[]> = {
-
-  idle_0: [     // upright, eyes open
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'sseesssseess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '...bbbbbb...',
-    '..bbbbbbbb..',
-    '.bbbbbbbbbb.',
-    '.bbbbbbbbbb.',
-    '.bbbbbbbbbb.',
-    '..bbbbbbbb..',
-    '...bbbbbb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '..bbb..bbb..',
-  ],
-
-  idle_1: [     // blink (eyes closed)
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'ssssssssssss',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '...bbbbbb...',
-    '..bbbbbbbb..',
-    '.bbbbbbbbbb.',
-    '.bbbbbbbbbb.',
-    '.bbbbbbbbbb.',
-    '..bbbbbbbb..',
-    '...bbbbbb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '..bbb..bbb..',
-  ],
-
-  thinking_0: [ // left arm raised
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'ssessssssess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '...bbbbbb...',
-    'bb.bbbbbbbb.',
-    'b..bbbbbbbb.',
-    'b..bbbbbbbb.',
-    '...bbbbbbbb.',
-    '....bbbbbb..',
-    '.....bbbb...',
-    '.....bb.bb..',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '....bbb..bbb',
-  ],
-
-  thinking_1: [ // arm slightly lower (wave)
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'ssessssssess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '...bbbbbb...',
-    'b..bbbbbbbb.',
-    'bb.bbbbbbbb.',
-    'b..bbbbbbbb.',
-    '...bbbbbbbb.',
-    '....bbbbbb..',
-    '.....bbbb...',
-    '.....bb.bb..',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '....bbb..bbb',
-  ],
-
-  working_0: [  // arms wide (lean forward)
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'sseesssseess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '..bbbbbbbb..',
-    '.bbbbbbbbbb.',
-    'bbbbbbbbbbbb',
-    'bbbbbbbbbbbb',
-    '.bbbbbbbbbb.',
-    '..bbbbbbbb..',
-    '...bbbbbb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '..bbb..bbb..',
-  ],
-
-  working_1: [  // arms pumping
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'sseesssseess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '..bbbbbbbb..',
-    'bbbbbbbbbbbb',
-    '.bbbbbbbbbb.',
-    'bbbbbbbbbbbb',
-    '.bbbbbbbbbb.',
-    '..bbbbbbbb..',
-    '...bbbbbb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '...bb..bb...',
-    '..bbb..bbb..',
-  ],
-
-  waiting_0: [  // arms spread (shrug)
-    '..ssssssss..',
-    '.ssssssssss.',
-    'ssssssssssss',
-    'sseesssseess',
-    'ssssssssssss',
-    '.ssssssssss.',
-    '..ssssssss..',
-    '...bbbbbb...',
-    'b.bbbbbbbb.b',
-    'b.bbbbbbbb.b',
-    'b.bbbbbbbb.b',
-    '...bbbbbbbb.',
-    '....bbbbbb..',
-    '.....bbbb...',
-    '.....bb.bb..',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '.....bb..bb.',
-    '....bbb..bbb',
-  ],
-
-};
-
-type Pixel = string | null;
-type Frame = Pixel[][];
-
-function parseFrame(rows: string[], pal: Pal): Frame {
-  return rows.map(row => {
-    const r = row.padEnd(SW, '.').slice(0, SW);
-    return r.split('').map(c => {
-      switch (c) {
-        case 's': return SKIN;
-        case 'e': return EYE;
-        case 'b': return pal.b;
-        case 'd': return pal.d;
-        default:  return null;
-      }
-    });
-  });
+interface SheetAnim {
+  kind:   'sheet';
+  file:   string;   // PNG filename in role's sprite folder
+  row:    number;   // LPC direction row (0–3)
+  frames: number;   // number of horizontal frame columns
+  ms:     number;   // ms per frame
 }
 
+interface SeqAnim {
+  kind:  'seq';
+  files: string[];  // individual PNG filenames in order
+  ms:    number;    // ms per frame
+  dx:    number;    // dest x inside canvas
+  dy:    number;    // dest y inside canvas
+  dw:    number;    // dest width inside canvas
+  dh:    number;    // dest height inside canvas
+}
+
+type AnimDef = SheetAnim | SeqAnim;
+
+// ── Per-role animation sets ───────────────────────────────────────────────────
+
+const ROLE_ANIMS: Record<string, Record<string, AnimDef>> = {
+
+  // Claude — LPC Human Male
+  //   idle/waiting → face LEFT (at rest, waiting)
+  //   working states → face RIGHT (engaged, active)
+  claude: {
+    idle:      { kind: 'sheet', file: 'Idle.png',   row: DIR_WEST,  frames: 1,  ms: 1000 },
+    thinking:  { kind: 'sheet', file: 'Walk.png',   row: DIR_EAST,  frames: 8,  ms: 130  },
+    searching: { kind: 'sheet', file: 'Shoot.png',  row: DIR_EAST,  frames: 13, ms: 70   },
+    writing:   { kind: 'sheet', file: 'Slash.png',  row: DIR_EAST,  frames: 6,  ms: 90   },
+    running:   { kind: 'sheet', file: 'Thrust.png', row: DIR_EAST,  frames: 8,  ms: 55   },
+    spawning:  { kind: 'sheet', file: 'Cast.png',   row: DIR_EAST,  frames: 7,  ms: 90   },
+    waiting:   { kind: 'sheet', file: 'Hurt.png',   row: DIR_NORTH, frames: 6,  ms: 220  },
+  },
+
+  // User — blue alien individual PNG sequence, centered in canvas
+  user: {
+    idle: {
+      kind: 'seq',
+      files: [
+        'blue__0000_idle_1.png',
+        'blue__0001_idle_2.png',
+        'blue__0002_idle_3.png',
+      ],
+      ms: 450,
+      dx: 32, dy: 0, dw: 64, dh: 128,
+    },
+    thinking: {
+      kind: 'seq',
+      files: [
+        'blue__0006_walk_1.png',
+        'blue__0007_walk_2.png',
+        'blue__0008_walk_3.png',
+        'blue__0009_walk_4.png',
+        'blue__0010_walk_5.png',
+        'blue__0011_walk_6.png',
+      ],
+      ms: 160,
+      dx: 32, dy: 0, dw: 64, dh: 128,
+    },
+  },
+
+  // Agent — LPC Lizardman Male, left-facing, simple set
+  agent: {
+    idle:      { kind: 'sheet', file: 'Idle.png', row: DIR_WEST,  frames: 1, ms: 1000 },
+    thinking:  { kind: 'sheet', file: 'Walk.png', row: DIR_WEST,  frames: 8, ms: 140  },
+    waiting:   { kind: 'sheet', file: 'Hurt.png', row: DIR_NORTH, frames: 6, ms: 260  },
+    spawning:  { kind: 'sheet', file: 'Cast.png', row: DIR_WEST,  frames: 7, ms: 100  },
+  },
+
+};
+
+// ── SpriteRenderer ────────────────────────────────────────────────────────────
+
 class SpriteRenderer {
-  private frames: Map<string, Frame> = new Map();
+  private sheets:    Map<string, HTMLImageElement> = new Map(); // sheet key → img
+  private seqImages: Map<string, HTMLImageElement> = new Map(); // filename → img
+  private anims:     Record<string, AnimDef>;
 
-  constructor(role: string) {
-    const pal = PALS[role] ?? PALS['agent'];
-    for (const [key, raw] of Object.entries(RAW)) {
-      this.frames.set(key, parseFrame(raw, pal));
-    }
-  }
+  constructor(role: string, spritesBaseUrl: string) {
+    const defs = ROLE_ANIMS[role] ?? ROLE_ANIMS['agent'];
+    this.anims = defs;
 
-  draw(ctx: CanvasRenderingContext2D, frameName: string): void {
-    ctx.clearRect(0, 0, SW * SCALE, SH * SCALE);
-    const frame = this.frames.get(frameName) ?? this.frames.get('idle_0')!;
-    for (let y = 0; y < frame.length; y++) {
-      for (let x = 0; x < frame[y].length; x++) {
-        const color = frame[y][x];
-        if (color) {
-          ctx.fillStyle = color;
-          ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+    for (const def of Object.values(defs)) {
+      if (def.kind === 'sheet') {
+        if (!this.sheets.has(def.file)) {
+          const img = new Image();
+          img.src   = `${spritesBaseUrl}/${role}/${def.file}`;
+          this.sheets.set(def.file, img);
+        }
+      } else {
+        for (const file of def.files) {
+          if (!this.seqImages.has(file)) {
+            const img = new Image();
+            img.src   = `${spritesBaseUrl}/${role}/${file}`;
+            this.seqImages.set(file, img);
+          }
         }
       }
     }
   }
-}
 
-// Animation schedule: state → frame list + ms per frame
-const ANIM: Record<string, { frames: string[]; ms: number }> = {
-  idle:      { frames: ['idle_0', 'idle_0', 'idle_0', 'idle_0', 'idle_1'], ms: 700 },
-  thinking:  { frames: ['thinking_0', 'thinking_1'], ms: 500 },
-  searching: { frames: ['working_0',  'working_1'],  ms: 350 },
-  writing:   { frames: ['working_0',  'working_1'],  ms: 350 },
-  running:   { frames: ['working_0',  'working_1'],  ms: 260 },
-  spawning:  { frames: ['idle_0'],                   ms: 600 },
-  waiting:   { frames: ['waiting_0'],                ms: 1000 },
-};
+  ms(state: string): number {
+    return (this.anims[state] ?? this.anims['idle']).ms;
+  }
+
+  frameCount(state: string): number {
+    const def = this.anims[state] ?? this.anims['idle'];
+    return def.kind === 'sheet' ? def.frames : def.files.length;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, state: string, frameIdx: number): void {
+    const def = this.anims[state] ?? this.anims['idle'];
+    const cw  = ctx.canvas.width;
+    const ch  = ctx.canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+
+    if (def.kind === 'sheet') {
+      const sheet = this.sheets.get(def.file);
+      if (!sheet?.complete || !sheet.naturalWidth) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        sheet,
+        (frameIdx % def.frames) * LPC_FRAME_SIZE, def.row * LPC_FRAME_SIZE,
+        LPC_FRAME_SIZE, LPC_FRAME_SIZE,
+        0, 0, cw, ch
+      );
+    } else {
+      const file = def.files[frameIdx % def.files.length];
+      const img  = this.seqImages.get(file);
+      if (!img?.complete || !img.naturalWidth) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
+                    def.dx, def.dy, def.dw, def.dh);
+    }
+  }
+}

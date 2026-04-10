@@ -21,6 +21,10 @@
         "title": "Claude Stage: Clear Stage"
       },
       {
+        "command": "claude-stage.trimSessions",
+        "title": "Claude Stage: Trim Sessions"
+      },
+      {
         "command": "claude-stage.openSettings",
         "title": "Claude Stage: Settings"
       }

@@ -32,7 +32,7 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `src/extension/hookSetup.ts` | Copies notify.js and merges Claude Code hooks |
 | `src/hook/notify.ts` | Hook script: `buildEvent` / `sendEvent`; compiled to `out/hooks/notify.js` |
 | `src/webview/stage.html` | HTML template for the panel (placeholders replaced at runtime) |
-| `src/webview/sprite.ts` | Pixel-art sprite data, `SpriteRenderer`, `ANIM` schedule |
+| `src/webview/sprite.ts` | LPC sprite sheet renderer (`SpriteRenderer`), animation defs per role |
 | `src/webview/force.ts` | Force-directed layout engine for agent positioning |
 | `src/webview/stage.ts` | Figure engine: sessions, events → canvas animations |
 
@@ -55,12 +55,12 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 
 | Tool | Animation state | Emoji |
 |------|-----------------|-------|
-| Read | `idle` (no dedicated state; falls back) | 📄 |
-| Write/Edit | `writing` – arms pumping | ✍️ / ✏️ |
-| Bash | `running` – arms pumping fast | ⚡ |
-| Grep/Glob | `searching` – arms pumping | 🔍 / 🗂️ |
-| Agent | `spawning` → `thinking` | 🤖 |
-| WebFetch/Search | `searching` | 🌐 / 🔎 |
+| Read | `thinking` – walking (face right) | 📄 |
+| Write/Edit | `writing` – slash animation (face right) | ✍️ / ✏️ |
+| Bash | `running` – thrust animation (face right) | ⚡ |
+| Grep/Glob | `searching` – shoot animation (face right) | 🔍 / 🗂️ |
+| Agent | `spawning` – cast animation (face right) → `thinking` | 🤖 |
+| WebFetch/Search | `searching` – shoot animation (face right) | 🌐 / 🔎 |
 
 ## Claude Code Hook Integration
 
@@ -119,12 +119,13 @@ The bottom-right log panel shows the last 20 events in a compact scrollable widg
 - [x] **Agent hierarchy** – SVG overlay draws dashed lines from Claude to each spawned agent; updates on spawn and clears after agents fade out on `stop`
 - [x] **Token counter** – Gauge in status bar fills relative to 200k context window; accumulates across turns from `CLAUDE_USAGE_INPUT/OUTPUT_TOKENS` env vars in the `Stop` hook
 - [x] **Hook helper script** – `src/hook/notify.ts` with `buildEvent` / `sendEvent` exports; compiled to `out/hooks/notify.js` and auto-deployed to `~/.claude/claude-stage-hook/notify.js` on activation
-- [x] **Pixel-art sprites** – Canvas-rendered 12×20 pixel figures with per-role colour palettes (blue=user, purple=claude, green=agent); replaces CSS stick figures
+- [x] **Pixel-art sprites** – Real sprite assets: LPC Character Bases (Human Male for Claude, Orc Male for Agent, CC-BY-SA 3.0) and CraftPix blue alien for User (OGA-BY 3.0). Rendered on `<canvas>` via `SpriteRenderer` supporting two formats: LPC 64×64 sprite sheets (directional rows, horizontal frame strips) and individual PNG sequences for the alien. Claude faces left at idle, right when working; state name shown as italic label below figure name. Background: deep-space gradient sky + scattered stars + isometric floor grid with perspective fade.
 - [x] **Multi-session support** – Up to 3 concurrent Claude instances, each assigned its own vertical band on the stage with independent agent zones
 - [x] **Force-directed agent layout** – Agents spread out naturally using pairwise repulsion + centre attraction physics; all existing agents redistribute on each spawn
 - [x] **Settings UI** – Port config, theme (default/light/high-contrast), figure density; ⚙ button in status bar opens VS Code settings
 - [x] **Event log** – Compact scrollable panel (20 entries, hover-reveal); ⊞ expands to full-screen overlay with 500-entry buffer, live updates
 - [x] **Session labels** – Display name derived from `cwd` last segment (project folder name) rather than raw UUID
+- [x] **Trim sessions** – ⊘ button in status bar (and `Claude Stage: Trim Sessions` command) keeps only the most-recently-active Claude session and clears all log entries. Inactivity cleanup no longer enforces a minimum of one live session.
 - [ ] **Camera pan** – Stage scrolls/pans as agents spread out
 - [ ] **History replay** – Record session events and replay them
 - [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel
@@ -143,7 +144,7 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 
 ## Design Decisions
 
-- **Canvas pixel-art sprites** – Each figure is a `<canvas>` element rendered by `SpriteRenderer` from hand-coded 12×20 pixel row data. No external assets; frame data is easy to extend.
+- **Canvas pixel-art sprites** – Each figure is a `<canvas>` element rendered by `SpriteRenderer`. Assets live in `media/sprites/{role}/` and are served as webview URIs. Two rendering modes: `sheet` (LPC 64×64 px sprite sheets, renders a single frame from a grid via `drawImage` crop) and `seq` (individual PNG files per frame, used for the blue alien user). Canvas is 128×128 px (2× LPC native). `imageSmoothingEnabled = false` for pixel-crisp upscaling on sheet renders.
 - **2.5D via CSS perspective** – Ground layer uses rotateX + grid to suggest isometric space without full 3D.
 - **HTTP server** – Chosen over file watching for low latency and simplicity. Hooks POST to localhost:7891.
 - **Lazy figure creation** – Figures only appear when relevant events fire, not pre-placed.

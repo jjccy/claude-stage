@@ -39,6 +39,7 @@ export class StagePanel {
         localResourceRoots: [
           vscode.Uri.joinPath(extensionUri, 'src', 'webview'),
           vscode.Uri.joinPath(extensionUri, 'out', 'media'),
+          vscode.Uri.joinPath(extensionUri, 'media', 'sprites'),
         ],
         retainContextWhenHidden: true,
       }
@@ -56,6 +57,10 @@ export class StagePanel {
     this.panel.webview.postMessage({ command: 'clear' });
   }
 
+  trim(): void {
+    this.panel.webview.postMessage({ command: 'trim' });
+  }
+
   reload(): void {
     this.panel.webview.html = this.getHtml();
   }
@@ -68,6 +73,9 @@ export class StagePanel {
     const jsUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'out', 'media', 'stage.js')
     );
+    const spritesUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'sprites')
+    );
     const templatePath = vscode.Uri.joinPath(
       this.extensionUri, 'src', 'webview', 'stage.html'
     ).fsPath;
@@ -75,6 +83,7 @@ export class StagePanel {
     const stageConfig = JSON.stringify({
       theme: config.get<string>('theme', 'default'),
       figureDensity: config.get<number>('figureDensity', 1),
+      spritesBaseUrl: spritesUri.toString(),
     });
     return template
       .replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource)
