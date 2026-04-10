@@ -24,7 +24,7 @@ Claude Code (hooks) ──POST──▶ localhost:7891
 
 1. Install the extension in VS Code
 2. Open any project — the stage panel opens automatically
-3. The extension auto-registers the required Claude Code hooks in `~/.claude/settings.json` on first activation
+3. The extension auto-registers all 26 Claude Code hooks in `~/.claude/settings.json` on first activation
 
 No manual setup needed.
 
@@ -41,12 +41,17 @@ Three distinct pixel-art characters: a **blue alien** for the User, a **human wa
 | Bash command | Claude (faces right) | Thrust animation |
 | Agent spawned | New orc figure | Cast animation → walking; force layout spreads all agents |
 | Agent completes | Orc figure | Flash ✓/✗, then fades |
-| Permission / stop error | Claude (faces left) | Hurt animation, ⚠️ bubble |
+| Permission request | Claude (faces left) | Hurt animation, ⚠️ bubble with tool details |
+| Auto-mode denied | Claude | 🚫 bubble, red flash |
+| Tool crash (PostToolUseFailure) | Claude | Red flash, error logged |
+| Context compaction | Claude | 📦 bubble, before→after token count |
+| Session ends cleanly | Claude figure | Fades out |
+| Stop error / rate limit | Claude (faces left) | ⚠️ bubble, 5 s timeout |
 | Response complete | Claude (faces left) | ✓ Done bubble |
 
 ## Event log
 
-A compact scrollable log sits in the bottom-right corner. It's invisible until you hover over it, then the background and header fade in. The log shows the last 20 events colour-coded by type. Click **⊞** to expand to a full-screen view showing up to 500 buffered entries — it stays live as new events arrive.
+A compact scrollable log sits in the bottom-right corner. It's invisible until you hover over it, then the background and header fade in. The log shows the last 20 events colour-coded by type. Click **⊞** to expand to a full-screen view showing up to 500 buffered entries — it stays live as new events arrive. The overlay wraps long lines so full file paths, commands, and messages are always readable.
 
 ## Development
 
@@ -58,7 +63,7 @@ Press **F5** to launch the Extension Development Host. `tsc -watch` runs automat
 
 Changes to `src/webview/**` hot-reload the webview without restarting.
 
-To exercise all stage features without a live Claude session, run the demo script after launching the host:
+To exercise all 26 hook types without a live Claude session, run the demo script after launching the host:
 
 ```bash
 node scripts/demo.js

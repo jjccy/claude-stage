@@ -29,7 +29,7 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `src/extension/extension.ts` | Activation, command registration, wiring |
 | `src/extension/eventServer.ts` | Local HTTP server that receives hook POSTs |
 | `src/extension/stagePanel.ts` | WebView panel: reads HTML template, injects config, handles messages |
-| `src/extension/hookSetup.ts` | Copies notify.js and merges Claude Code hooks |
+| `src/extension/hookSetup.ts` | Copies notify.js and merges all 26 Claude Code hooks into settings.json |
 | `src/hook/notify.ts` | Hook script: `buildEvent` / `sendEvent`; compiled to `out/hooks/notify.js` |
 | `src/webview/stage.html` | HTML template for the panel (placeholders replaced at runtime) |
 | `src/webview/sprite.ts` | LPC sprite sheet renderer (`SpriteRenderer`), animation defs per role |
@@ -43,13 +43,29 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `user_prompt` | UserPromptSubmit | User figure speaks, Claude starts thinking |
 | `tool_use` | PreToolUse | Claude animates to tool-specific pose + bubble |
 | `tool_result` | PostToolUse | Claude flashes success/error, returns to thinking |
-| `agent_done` | PostToolUse (tool=Agent, derived) | Agent flashes, goes idle, then fades |
-| `permission` | Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble |
+| `tool_failure` | PostToolUseFailure | Claude red-flashes; tool crashed / exited non-zero |
+| `agent_done` | PostToolUse (tool=Agent, derived) | Agent flashes ✓/✗, goes idle, then fades |
+| `permission` | PermissionRequest hook (tool details) or Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble |
+| `permission_denied` | PermissionDenied | Claude red-flashes, 🚫 bubble, auto-mode blocked it |
 | `notification` | Notification (auth_success, other types) | Brief bubble on Claude (icon + message), 3 s timeout |
 | `session_start` | SessionStart | Claude waves 👋/↩/📦 depending on source, 2.5 s |
+| `session_end` | SessionEnd | Session figure fades and is removed from stage |
 | `stop` | Stop | Claude shows ✓ Done, token gauge updates |
 | `stop_failure` | StopFailure | Claude goes to `waiting` pose, ⚠️ error bubble, 5 s timeout |
-| `thinking` | *(no hook — reserved)* | Claude bobs head, thought bubble |
+| `subagent_start` | SubagentStart | Agent type logged (agent figure already on stage from tool_use) |
+| `subagent_stop` | SubagentStop | Agent output logged; matching figure gets ✓ bubble |
+| `pre_compact` | PreCompact | Claude shows 📦 Compacting bubble |
+| `post_compact` | PostCompact | 📦 Compacted bubble with before→after token counts |
+| `elicitation_result` | ElicitationResult | Permission watchdog cleared, action logged |
+| `cwd_changed` | CwdChanged | Figure label updated to new directory name |
+| `instructions_loaded` | InstructionsLoaded | File name, memory type, and load reason logged |
+| `file_changed` | FileChanged | File path and change type logged |
+| `config_change` | ConfigChange | Config source and changed keys logged |
+| `worktree_create` | WorktreeCreate | Worktree path logged |
+| `worktree_remove` | WorktreeRemove | Worktree path and removal reason logged |
+| `teammate_idle` | TeammateIdle | Teammate name and team name logged |
+| `task_created` | TaskCreated | Task subject logged |
+| `task_completed` | TaskCompleted | Task subject logged |
 
 ## Tool → Animation Mapping
 
@@ -64,35 +80,67 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 
 ## Claude Code Hook Integration
 
-The extension auto-registers hooks on activation via `setupHooks()`. It copies `out/hooks/notify.js` to a stable path (`~/.claude/claude-stage-hook/notify.js`) and merges seven entries into `~/.claude/settings.json`:
+The extension auto-registers hooks on activation via `setupHooks()`. It copies `out/hooks/notify.js` to a stable path (`~/.claude/claude-stage-hook/notify.js`) and merges 26 entries into `~/.claude/settings.json`:
 
-| Hook | Event arg | What fires it |
-|------|-----------|---------------|
-| `UserPromptSubmit` | `user_prompt` | User sends a message |
-| `PreToolUse` | `tool_use` | Any tool call starts |
-| `PostToolUse` | `tool_result` | Any tool call finishes |
-| `Stop` | `stop` | Response complete |
-| `Notification` | `notification` | Claude sends a notification (permission prompts, auth, etc.) |
-| `SessionStart` | `session_start` | Session begins (startup / resume / compact / clear) |
-| `StopFailure` | `stop_failure` | Response aborted by error (rate limit, billing, auth) |
+| Hook | Event arg | Category |
+|------|-----------|----------|
+| `SessionStart` | `session_start` | Session |
+| `SessionEnd` | `session_end` | Session |
+| `UserPromptSubmit` | `user_prompt` | Per-turn |
+| `Stop` | `stop` | Per-turn |
+| `StopFailure` | `stop_failure` | Per-turn |
+| `PreToolUse` | `tool_use` | Tool execution |
+| `PostToolUse` | `tool_result` | Tool execution |
+| `PostToolUseFailure` | `tool_failure` | Tool execution |
+| `PermissionRequest` | `permission_request` | Permissions |
+| `PermissionDenied` | `permission_denied` | Permissions |
+| `SubagentStart` | `subagent_start` | Agents |
+| `SubagentStop` | `subagent_stop` | Agents |
+| `Notification` | `notification` | Notifications |
+| `PreCompact` | `pre_compact` | Compaction |
+| `PostCompact` | `post_compact` | Compaction |
+| `Elicitation` | `elicitation` | MCP elicitation |
+| `ElicitationResult` | `elicitation_result` | MCP elicitation |
+| `InstructionsLoaded` | `instructions_loaded` | File & directory |
+| `FileChanged` | `file_changed` | File & directory |
+| `CwdChanged` | `cwd_changed` | File & directory |
+| `ConfigChange` | `config_change` | Config & worktrees |
+| `WorktreeCreate` | `worktree_create` | Config & worktrees |
+| `WorktreeRemove` | `worktree_remove` | Config & worktrees |
+| `TeammateIdle` | `teammate_idle` | Team / tasks |
+| `TaskCreated` | `task_created` | Team / tasks |
+| `TaskCompleted` | `task_completed` | Team / tasks |
 
-`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. It uses `session_id` from the hook stdin (when present) as the session identifier for accurate multi-session tracking. Each event also carries a `label` field derived from the last path segment of `cwd` (e.g. `my-project`) — this is used as the display name under each Claude figure. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
+`notify.js` (compiled from `src/hook/notify.ts`) reads Claude Code's stdin JSON, calls `buildEvent()`, and POSTs to `localhost:<port>`. It uses `session_id` from the hook stdin (when present) as the session identifier for accurate multi-session tracking. Each event carries a `label` field derived from the last path segment of `cwd` (e.g. `my-project`) — used as the display name under each Claude figure. The port is stamped in at install time. Existing non-claude-stage hooks are preserved; re-running is idempotent.
+
+### Permission state machine
+
+`PermissionRequest` fires after `PreToolUse` in Claude Code's hook ordering. The stage tracks a `permissionPending` boolean per session: when `permission` arrives the flag is set and Claude switches to `waiting` state; when `tool_use` arrives while the flag is set the bubble is updated but the state is not overridden. A 15-second watchdog auto-transitions to `thinking` in case the user denies — because `PostToolUse` never fires after a denial.
 
 ## ClaudeStageEvent shape
 
 ```typescript
 interface ClaudeStageEvent {
-  type:        string;       // event type (see table above)
-  timestamp:   number;       // Date.now() at POST time
-  sessionId:   string;       // session_id UUID or cwd path
-  label?:      string;       // display name — last segment of cwd (e.g. "my-project")
-  tool?:       string;       // tool name for tool_use / tool_result
-  phase?:      string;       // "pre" | "post"
-  params?:     Record<string, unknown>;
-  success?:    boolean;
-  text?:       string;       // prompt text, notification message, session source, etc.
-  tokens?:     { input: number; output: number };
-  notifType?:  string;       // original notification_type value
+  type:         string;        // event type (see table above)
+  timestamp:    number;        // Date.now() at POST time
+  sessionId:    string;        // session_id UUID or cwd path
+  label?:       string;        // display name — last segment of cwd (e.g. "my-project")
+  tool?:        string;        // tool name for tool_use / tool_result / permission_request
+  params?:      Record<string, unknown>; // tool_input for tool events
+  success?:     boolean;       // tool_result / agent_done: false when is_error=true
+  text?:        string;        // prompt, message, session source, etc.
+  tokens?:      { input: number; output: number }; // stop: token usage from transcript
+  notifType?:   string;        // notification / permission: original notification_type
+  model?:       string;        // session_start: Claude model ID
+  permMode?:    string;        // permission_mode ("default"|"auto"|"acceptEdits"|...)
+  agentId?:     string;        // subagent_start / subagent_stop
+  agentType?:   string;        // subagent_start / subagent_stop
+  error?:       string;        // tool_failure: error message
+  isInterrupt?: boolean;       // tool_failure: true when interrupted by user
+  trigger?:     string;        // pre_compact / post_compact: "manual" | "auto"
+  mcpServer?:   string;        // elicitation / elicitation_result: MCP server name
+  mcpAction?:   string;        // elicitation_result: "accept" | "decline" | "cancel"
+  taskSubject?: string;        // task_created / task_completed: task subject line
 }
 ```
 
@@ -111,34 +159,17 @@ The ⚙ button in the status bar (bottom of the stage) opens VS Code settings fi
 
 ## Event Log
 
-The bottom-right log panel shows the last 20 events in a compact scrollable widget. It is invisible until hovered (background and header fade in on hover). A ⊞ button expands to a full-screen overlay showing all 500 buffered entries, which also updates live as new events arrive. Both compact and overlay views auto-scroll to the newest entry.
-
-## Future Features
-
-- [x] **Tool success/failure** – Green flash (`.body` successFlash) / red shake (errorShake) on PostToolUse result; driven by `is_error` in `CLAUDE_TOOL_RESPONSE`
-- [x] **Agent hierarchy** – SVG overlay draws dashed lines from Claude to each spawned agent; updates on spawn and clears after agents fade out on `stop`
-- [x] **Token counter** – Gauge in status bar fills relative to 200k context window; accumulates across turns from `CLAUDE_USAGE_INPUT/OUTPUT_TOKENS` env vars in the `Stop` hook
-- [x] **Hook helper script** – `src/hook/notify.ts` with `buildEvent` / `sendEvent` exports; compiled to `out/hooks/notify.js` and auto-deployed to `~/.claude/claude-stage-hook/notify.js` on activation
-- [x] **Pixel-art sprites** – Real sprite assets: LPC Character Bases (Human Male for Claude, Orc Male for Agent, CC-BY-SA 3.0) and CraftPix blue alien for User (OGA-BY 3.0). Rendered on `<canvas>` via `SpriteRenderer` supporting two formats: LPC 64×64 sprite sheets (directional rows, horizontal frame strips) and individual PNG sequences for the alien. Claude faces left at idle, right when working; state name shown as italic label below figure name. Background: deep-space gradient sky + scattered stars + isometric floor grid with perspective fade.
-- [x] **Multi-session support** – Up to 3 concurrent Claude instances, each assigned its own vertical band on the stage with independent agent zones
-- [x] **Force-directed agent layout** – Agents spread out naturally using pairwise repulsion + centre attraction physics; all existing agents redistribute on each spawn
-- [x] **Settings UI** – Port config, theme (default/light/high-contrast), figure density; ⚙ button in status bar opens VS Code settings
-- [x] **Event log** – Compact scrollable panel (20 entries, hover-reveal); ⊞ expands to full-screen overlay with 500-entry buffer, live updates
-- [x] **Session labels** – Display name derived from `cwd` last segment (project folder name) rather than raw UUID
-- [x] **Trim sessions** – ⊘ button in status bar (and `Claude Stage: Trim Sessions` command) keeps only the most-recently-active Claude session and clears all log entries. Inactivity cleanup no longer enforces a minimum of one live session.
-- [ ] **Camera pan** – Stage scrolls/pans as agents spread out
-- [ ] **History replay** – Record session events and replay them
-- [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel
+The bottom-right log panel shows the last 20 events in a compact scrollable widget. It is invisible until hovered (background and header fade in on hover). A ⊞ button expands to a full-screen overlay showing all 500 buffered entries, which also updates live as new events arrive. Both compact and overlay views auto-scroll to the newest entry. The overlay uses `white-space: pre-wrap` so full file paths, commands, and messages are never truncated.
 
 ## Testing
 
-Run with `npm test`. Tests across 3 suites.
+Run with `npm test`. 87 tests across 3 suites.
 
 | File | Covers |
 |------|--------|
 | `test/eventServer.test.ts` | HTTP server: start/stop, status codes (200/400/405/204), event emission, timestamp stamping |
-| `test/notify.test.ts` | `buildEvent()`: all event types incl. notification/session_start/stop_failure, `agent_done` for Agent, XML filtering, transcript token parsing, `session_id` → `sessionId`, `label` derivation from `cwd` |
-| `test/setupHooks.test.ts` | `setupHooks()`: port stamping, all seven hook types, idempotency, preservation of existing hooks and other settings keys |
+| `test/notify.test.ts` | `buildEvent()`: all 26 hook types, `agent_done` derivation for Agent tool, XML filtering for system-injected prompts, transcript token parsing, `session_id` → `sessionId`, `label` derivation from `cwd`, `permMode` forwarding |
+| `test/setupHooks.test.ts` | `setupHooks()`: port stamping into notify.js, all 26 hook types registered, idempotency, preservation of existing hooks and other settings keys |
 
 Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation.
 
@@ -151,7 +182,26 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 - **Agent lifecycle** – Agent figures spawn on Agent tool use and fade out on `stop` event.
 - **HTML template** – Panel HTML lives in `src/webview/stage.html` with `{{placeholder}}` substitution; `stagePanel.ts` reads it with `fs.readFileSync` and replaces `cspSource`, `styleUri`, `scriptUri`, and `config` at render time. Separates markup from TypeScript.
 - **Settings injection** – Current settings (theme, figureDensity) are serialised as `window.__CLAUDE_STAGE_CONFIG__` in a `<script>` block rather than passed via postMessage, so they are available synchronously at script startup before any events arrive.
-- **Session label from cwd** – Session UUIDs are not human-readable; `notify.ts` derives a `label` from the last path segment of `cwd` (the project directory) and sends it with every event. The stage stores this on first session creation and uses it for figure names and log text.
+- **Session label from cwd** – Session UUIDs are not human-readable; `notify.ts` derives a `label` from the last path segment of `cwd` (the project directory) and sends it with every event. The stage stores this on first session creation and uses it for figure names and log text. `CwdChanged` events update the label live.
+- **Permission watchdog** – `PermissionRequest` fires after `PreToolUse`; the stage uses a `permissionPending` flag to hold the `waiting` state. A 15-second watchdog transitions to `thinking` automatically when PostToolUse never arrives (user denied or dismissed).
+
+## Future Features
+
+- [x] **Tool success/failure** – Green flash / red shake on PostToolUse result; driven by `is_error` in tool response
+- [x] **Agent hierarchy** – SVG overlay draws dashed lines from Claude to each spawned agent; updates on spawn and clears after agents fade out
+- [x] **Token counter** – Gauge in status bar fills relative to 200k context window; reads token usage from Stop hook transcript file
+- [x] **Hook helper script** – `src/hook/notify.ts` with `buildEvent` / `sendEvent` exports; compiled to `out/hooks/notify.js` and auto-deployed to `~/.claude/claude-stage-hook/notify.js` on activation
+- [x] **Pixel-art sprites** – Real sprite assets: LPC Character Bases (Human Male for Claude, Orc Male for Agent, CC-BY-SA 3.0) and CraftPix blue alien for User (OGA-BY 3.0)
+- [x] **Multi-session support** – Up to 3 concurrent Claude instances, each assigned its own vertical band
+- [x] **Force-directed agent layout** – Agents spread out naturally using pairwise repulsion + centre attraction physics
+- [x] **Settings UI** – Port config, theme, figure density; ⚙ button in status bar
+- [x] **Event log** – Compact 20-entry panel + ⊞ full-screen overlay with 500-entry buffer; overlay wraps long lines
+- [x] **Session labels** – Display name from `cwd` last segment; updates live on `CwdChanged`
+- [x] **Trim sessions** – ⊘ button keeps only the most-recently-active session and clears logs
+- [x] **All 26 hooks** – Full coverage of every Claude Code hook type: session, tool, permissions, agents, compaction, MCP elicitation, file/dir, config, worktrees, team/tasks
+- [ ] **Camera pan** – Stage scrolls/pans as agents spread out
+- [ ] **History replay** – Record session events and replay them
+- [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel
 
 ## Related Project
 

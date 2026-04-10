@@ -6,7 +6,7 @@ import { buildEvent, HookData } from '../src/hook/notify';
 describe('buildEvent', () => {
 
   describe('tool_use', () => {
-    it('sets type, tool, phase=pre, and params from hook data', () => {
+    it('sets type, tool, and params from hook data', () => {
       const ev = buildEvent('tool_use', {
         tool_name:  'Bash',
         tool_input: { command: 'ls -la' },
