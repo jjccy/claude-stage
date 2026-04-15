@@ -1,5 +1,6 @@
-// Claude Stage – demo script
-// Fires a scripted sequence of events to exercise all 26 hook types.
+// Claude Stage – demo script  (v0.1.1)
+// Fires a scripted sequence of events to exercise all 26 hook types,
+// force-directed multi-Claude layout, and agent-follows-Claude tracking.
 // Run after pressing F5 to launch the Extension Development Host:
 //
 //   node scripts/demo.js
@@ -44,6 +45,8 @@ const SID_A   = '30DA8347-413A-4C67-BCB0-7F09DEE81C45';
 const LABEL_A = 'my-project';
 const SID_B   = '03C6DE5A-3096-4927-A0A7-E496D428F673';
 const LABEL_B = 'other-project';
+const SID_C   = 'A1B2C3D4-5E6F-7890-ABCD-EF1234567890';
+const LABEL_C = 'api-service';
 
 // ── demo ─────────────────────────────────────────────────────────────────────
 
@@ -342,6 +345,42 @@ async function run() {
                taskSubject: 'Fix auth test mock', text: 'Fix auth test mock' });
   await wait(600);
 
+  // ── Scene 8b: Third session — demonstrates 3-Claude force layout ─────────
+  // SID_C joins while SID_A and SID_B are both alive. ForceLayout re-settles
+  // all three with ~25 viewport-% vertical gap. When SID_C ends, the two
+  // remaining Claudes smoothly converge back to their two-Claude positions and
+  // their agent clusters follow.
+  console.log('\n8b. Third session — 3-Claude force-directed layout');
+  await post({ type: 'session_start', sessionId: SID_C, label: LABEL_C,
+               text: 'startup', model: 'claude-sonnet-4-6' });
+  await wait(800);
+
+  await post({ type: 'user_prompt', sessionId: SID_C, label: LABEL_C,
+               text: 'Deploy the staging environment' });
+  await wait(800);
+
+  await post({ type: 'tool_use', sessionId: SID_C, label: LABEL_C,
+               tool: 'Bash', params: { command: 'npm run deploy:staging' } });
+  await wait(800);
+  await post({ type: 'tool_result', sessionId: SID_C, label: LABEL_C,
+               tool: 'Bash', success: true });
+  await wait(600);
+
+  await post({ type: 'tool_use', sessionId: SID_C, label: LABEL_C,
+               tool: 'WebFetch', params: { url: 'https://staging.api-service.internal/health' } });
+  await wait(800);
+  await post({ type: 'tool_result', sessionId: SID_C, label: LABEL_C,
+               tool: 'WebFetch', success: true });
+  await wait(600);
+
+  // SID_C finishes — remaining two Claudes re-settle to their two-Claude positions.
+  await post({ type: 'stop', sessionId: SID_C, label: LABEL_C,
+               tokens: { input: 4200, output: 900 } });
+  await wait(600);
+  await post({ type: 'session_end', sessionId: SID_C, label: LABEL_C,
+               text: 'user_exit' });
+  await wait(1200);
+
   // ── Scene 9: File/config/worktree events ─────────────────────────────────
   console.log('\n9. File changes, config, worktree');
   await post({ type: 'file_changed', sessionId: SID_B, label: LABEL_B,
@@ -413,9 +452,14 @@ async function run() {
 
   console.log('\n─────────────────────────────────────────────────────────\n');
   console.log('Done. Run  node scripts/demo.js  again to replay.');
+  console.log('');
   console.log('Commands:');
   console.log('  "Claude Stage: Clear Stage"    — remove all figures and reset');
-  console.log('  "Claude Stage: Trim Sessions"  — keep latest session, clear logs\n');
+  console.log('  "Claude Stage: Trim Sessions"  — keep latest session, clear logs');
+  console.log('');
+  console.log('Dev tools (no live hooks needed):');
+  console.log('  Press ` (backtick) or click 🛠 in the status bar');
+  console.log('  Spawn / remove Claudes and agents freely\n');
 }
 
 run().catch(console.error);

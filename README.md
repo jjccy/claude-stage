@@ -2,7 +2,7 @@
 
 A VS Code extension that visualizes Claude Code's activity as animated pixel-art figures on a stage.
 
-Every action Claude takes — thinking, reading files, running commands, spawning agents, requesting permissions — becomes a little character doing something expressive. Multiple Claude sessions appear as separate figures in their own zones.
+Every action Claude takes — thinking, reading files, running commands, spawning agents, requesting permissions — becomes a little character doing something expressive. Multiple Claude sessions appear as separate figures that arrange themselves dynamically on the stage.
 
 ![Claude Stage preview](media/preview.png)
 
@@ -49,6 +49,10 @@ Three distinct pixel-art characters: a **blue alien** for the User, a **human wa
 | Stop error / rate limit | Claude (faces left) | ⚠️ bubble, 5 s timeout |
 | Response complete | Claude (faces left) | ✓ Done bubble |
 
+## Multiple Claude sessions
+
+When more than one `claude` process is running, each gets its own figure. Claudes arrange themselves using the same force-directed physics as agents — they repel each other and are attracted back toward the centre of the stage, settling into a natural vertical spread. When a session ends, the remaining Claudes smoothly re-settle, and their agent clusters follow.
+
 ## Event log
 
 A compact scrollable log sits in the bottom-right corner. It's invisible until you hover over it, then the background and header fade in. The log shows the last 20 events colour-coded by type. Click **⊞** to expand to a full-screen view showing up to 500 buffered entries — it stays live as new events arrive. The overlay wraps long lines so full file paths, commands, and messages are always readable.
@@ -68,6 +72,8 @@ To exercise all 26 hook types without a live Claude session, run the demo script
 ```bash
 node scripts/demo.js
 ```
+
+**Dev tools panel** — press `` ` `` (backtick) or click the 🛠 button in the stage status bar to open a panel that lets you freely spawn Claude instances and agents, send prompts, and remove sessions, all without needing real hooks. Useful for testing layout and animations.
 
 ## Configuration
 

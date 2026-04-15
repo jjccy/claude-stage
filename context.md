@@ -33,8 +33,16 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `src/hook/notify.ts` | Hook script: `buildEvent` / `sendEvent`; compiled to `out/hooks/notify.js` |
 | `src/webview/stage.html` | HTML template for the panel (placeholders replaced at runtime) |
 | `src/webview/sprite.ts` | LPC sprite sheet renderer (`SpriteRenderer`), animation defs per role |
-| `src/webview/force.ts` | Force-directed layout engine for agent positioning |
-| `src/webview/stage.ts` | Figure engine: sessions, events → canvas animations |
+| `src/webview/force.ts` | Force-directed layout engine — used for both agent clusters and Claude placement |
+| `src/webview/stage-state.ts` | Types (`Figure`, `Session`, `StageEvent`, `Slot`), constants, DOM refs, all shared mutable state |
+| `src/webview/stage-figures.ts` | Figure creation/movement, animation loop, bubble/flash helpers |
+| `src/webview/stage-log.ts` | Log panel, status bar, token gauge, helper utilities (`truncate`, `getToolParam`) |
+| `src/webview/stage-sessions.ts` | Session lifecycle: create/remove, force-directed Claude repositioning, inactivity cleanup, trim |
+| `src/webview/stage-events.ts` | `routeAgentEvent` + `handleEvent` — the full 26-type event switch |
+| `src/webview/stage-devtools.ts` | Dev tools panel (toggle `` ` ``): spawn/remove Claudes and agents without live hooks |
+| `src/webview/stage.ts` | Entry point: `/// <reference path>` chain, button wiring, VS Code message listener, init |
+
+`stage.ts` is the root file in `tsconfig.webview.json` (`module:none → outFile`). TypeScript concatenates all referenced files in order into `out/media/stage.js`. No bundler needed.
 
 ## Event Types
 
@@ -44,7 +52,7 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `tool_use` | PreToolUse | Claude animates to tool-specific pose + bubble; **if `agentId` is set, routed to that agent's sprite instead** |
 | `tool_result` | PostToolUse | Claude flashes success/error, returns to thinking; **if `agentId` is set, routed to that agent's sprite instead** |
 | `tool_failure` | PostToolUseFailure | Claude red-flashes; **if `agentId` is set, routed to agent sprite** |
-| `agent_done` | PostToolUse (tool=Agent, derived) | Agent flashes ✓/✗, goes idle, then fades |
+| `agent_done` | PostToolUse (tool=Agent, derived) | Parent Claude flashes ✓/✗, goes thinking |
 | `permission` | PermissionRequest hook (tool details) or Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble; **if `agentId` is set, routed to agent sprite** |
 | `permission_denied` | PermissionDenied | Claude red-flashes, 🚫 bubble; **if `agentId` is set, routed to agent sprite** |
 | `notification` | Notification (auth_success, other types) | Brief bubble on Claude (icon + message), 3 s timeout |
@@ -53,7 +61,7 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | `stop` | Stop | Claude shows ✓ Done, token gauge updates; agent-owned sessions suppressed |
 | `stop_failure` | StopFailure | Claude goes to `waiting` pose, ⚠️ error bubble, 5 s timeout |
 | `subagent_start` | SubagentStart | Links agent UUID to its figure (enables subsequent tool event routing); logs type |
-| `subagent_stop` | SubagentStop | Looks up agent figure by UUID, sets to idle, shows ✓ result bubble |
+| `subagent_stop` | SubagentStop | Looks up agent figure by UUID, sets to idle, shows ✓ result bubble, schedules fade |
 | `pre_compact` | PreCompact | Claude shows 📦 Compacting bubble |
 | `post_compact` | PostCompact | 📦 Compacted bubble with before→after token counts |
 | `elicitation_result` | ElicitationResult | Permission watchdog cleared, action logged |
@@ -71,7 +79,7 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 
 | Tool | Animation state | Emoji |
 |------|-----------------|-------|
-| Read | `thinking` – walking (face right) | 📄 |
+| Read | `reading` – walking (face right) | 📄 |
 | Write/Edit | `writing` – slash animation (face right) | ✍️ / ✏️ |
 | Bash | `running` – thrust animation (face right) | ⚡ |
 | Grep/Glob | `searching` – shoot animation (face right) | 🔍 / 🗂️ |
@@ -117,6 +125,28 @@ The extension auto-registers hooks on activation via `setupHooks()`. It copies `
 
 `PermissionRequest` fires after `PreToolUse` in Claude Code's hook ordering. The stage tracks a `permissionPending` boolean per session: when `permission` arrives the flag is set and Claude switches to `waiting` state; when `tool_use` arrives while the flag is set the bubble is updated but the state is not overridden. A 15-second watchdog auto-transitions to `thinking` in case the user denies — because `PostToolUse` never fires after a denial.
 
+## ForceLayout API
+
+`src/webview/force.ts` — shared physics engine used for both Claude placement and agent clustering.
+
+```typescript
+new ForceLayout(cx, cy, hw, hh, repulsion?, attraction?)
+```
+
+| Method | Description |
+|--------|-------------|
+| `add()` | Spawn new item at centre + jitter, run 200-step simulation |
+| `removeAt(index)` | Remove item by insertion index, re-simulate remaining |
+| `translateTo(newCx, newCy)` | Move the zone centre **and rigidly carry all items** by the same delta (zero velocities). Use when the owning Claude figure moves. |
+| `positions()` | Settled `{x, y}[]` in insertion order |
+| `size()` | Item count |
+| `clear()` | Remove all items without simulation |
+
+Physics parameters are per-instance (constructor defaults: `repulsion=15`, `attraction=0.05`). Equilibrium gap between two items ≈ `(2 · repulsion / attraction)^(1/3)` viewport-%.
+
+- **Agent layouts** use defaults → ~8% gap (tight cluster around Claude).
+- **Claude layout** uses `repulsion=400` → ~25% gap (Claudes spread across the stage height).
+
 ## ClaudeStageEvent shape
 
 ```typescript
@@ -161,6 +191,23 @@ The ⚙ button in the status bar (bottom of the stage) opens VS Code settings fi
 
 The bottom-right log panel shows the last 20 events in a compact scrollable widget. It is invisible until hovered (background and header fade in on hover). A ⊞ button expands to a full-screen overlay showing all 500 buffered entries, which also updates live as new events arrive. Both compact and overlay views auto-scroll to the newest entry. The overlay uses `white-space: pre-wrap` so full file paths, commands, and messages are never truncated.
 
+`config_change` events with no text payload are silently dropped — Claude Code fires many of these on startup with no actionable content.
+
+## Dev Tools Panel
+
+A floating panel for testing the stage without a live Claude Code session. Toggle with `` ` `` (backtick) or the 🛠 button in the status bar.
+
+| Button | Action |
+|--------|--------|
+| **＋ Claude** | Spawn a new Claude session (auto-names: `stage-1`, `demo-2`, …) |
+| **▶** (per session) | Send a `user_prompt` event — puts Claude into thinking state |
+| **＋A** (per session) | Spawn an agent via the real `tool_use → subagent_start` path |
+| **✓A** (per session) | Resolve all pending agents (`subagent_stop`) |
+| **■** (per session) | Send a `stop` event |
+| **✕** (per session) | Remove the session (`session_end`) |
+
+All actions go through `handleEvent()` so the full state machine, force layouts, and animations behave identically to production.
+
 ## Testing
 
 Run with `npm test`. 87 tests across 3 suites.
@@ -171,7 +218,7 @@ Run with `npm test`. 87 tests across 3 suites.
 | `test/notify.test.ts` | `buildEvent()`: all 26 hook types, `agent_done` derivation for Agent tool, XML filtering for system-injected prompts, transcript token parsing, `session_id` → `sessionId`, `label` derivation from `cwd`, `permMode` forwarding |
 | `test/setupHooks.test.ts` | `setupHooks()`: port stamping into notify.js, all 26 hook types registered, idempotency, preservation of existing hooks and other settings keys |
 
-Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation.
+Tests use a real temp directory (no mocking) — `setupHooks` accepts an optional `homeDir` parameter for isolation. Webview code (`stage-*.ts`, `force.ts`, `sprite.ts`) is not covered by automated tests; use the dev tools panel or `node scripts/demo.js` for manual validation.
 
 ## Design Decisions
 
@@ -179,9 +226,11 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 - **2.5D via CSS perspective** – Ground layer uses rotateX + grid to suggest isometric space without full 3D.
 - **HTTP server** – Chosen over file watching for low latency and simplicity. Hooks POST to localhost:7891.
 - **Lazy figure creation** – Figures only appear when relevant events fire, not pre-placed.
-- **Agent tool routing** – When a subagent fires PreToolUse/PostToolUse hooks, the hook data carries `agent_id`. `notify.ts` forwards this as `agentId` in `tool_use`, `tool_result`, `tool_failure`, `permission`, and `permission_denied` events. In `stage.ts`, `handleEvent` checks for `agentId` first: if a figure is mapped for that UUID (via `agentIdToFigureId`), the event is handled by `routeAgentEvent` which updates the agent sprite and returns early — Claude's sprite never sees it. The UUID→figure mapping is built when `subagent_start` fires by dequeuing from a per-session `pendingAgentFigures` queue populated when each Agent tool_use creates a figure. Agent session lifecycle events (`session_start`, `session_end`, `stop`) are suppressed to avoid phantom Claude figures.
-- **Agent lifecycle** – Agent figures spawn on Agent tool use and fade out on `stop` event.
-- **HTML template** – Panel HTML lives in `src/webview/stage.html` with `{{placeholder}}` substitution; `stagePanel.ts` reads it with `fs.readFileSync` and replaces `cspSource`, `styleUri`, `scriptUri`, and `config` at render time. Separates markup from TypeScript.
+- **Force-directed Claude placement** – Claude instances are not assigned fixed slots. A single global `claudeLayout` (`ForceLayout` with `repulsion=400`) places all Claudes. When a session is added, `add()` re-settles existing Claudes then the new one takes the last position. When a session is removed, `removeAt(index)` does the same. `claudeLayoutIdx` on each `Session` tracks insertion order; after a removal, indices above the removed one are decremented to stay in sync. The equilibrium gap at `repulsion=400` is ~25 viewport-%, giving well-separated Claudes even at 2–3 concurrent sessions.
+- **Agent zones follow Claude** – Each session's `agentLayout` is a `ForceLayout` centred 24 viewport-% to the right of its Claude. `redistributeClaudePositions()` calls `agentLayout.translateTo(newCx, newCy)` after any Claude move, which rigidly shifts all agent layout items by the same delta and immediately moves their DOM figures via `moveFigure`. This keeps the entire cluster coherent as Claudes re-settle.
+- **Agent tool routing** – When a subagent fires PreToolUse/PostToolUse hooks, the hook data carries `agent_id`. `notify.ts` forwards this as `agentId` in `tool_use`, `tool_result`, `tool_failure`, `permission`, and `permission_denied` events. In `stage-events.ts`, `handleEvent` checks for `agentId` first: if a figure is mapped for that UUID (via `agentIdToFigureId`), the event is handled by `routeAgentEvent` which updates the agent sprite and returns early — Claude's sprite never sees it. The UUID→figure mapping is built when `subagent_start` fires by dequeuing from a per-session `pendingAgentFigures` queue populated when each Agent tool_use creates a figure. Agent session lifecycle events (`session_start`, `session_end`, `stop`) are suppressed to avoid phantom Claude figures.
+- **Webview split** – `stage.ts` was split into 7 files (`stage-state.ts`, `stage-figures.ts`, `stage-log.ts`, `stage-sessions.ts`, `stage-events.ts`, `stage-devtools.ts`, `stage.ts`) to keep each file focused. TypeScript `module:none` + `outFile` concatenates them in reference-path order into a single `stage.js`. Each file uses module-level globals (no IIFE), which is safe in the isolated webview context.
+- **HTML template** – Panel HTML lives in `src/webview/stage.html` with `{{placeholder}}` substitution; `stagePanel.ts` reads it with `fs.readFileSync` and replaces `cspSource`, `styleUri`, `scriptUri`, and `config` at render time.
 - **Settings injection** – Current settings (theme, figureDensity) are serialised as `window.__CLAUDE_STAGE_CONFIG__` in a `<script>` block rather than passed via postMessage, so they are available synchronously at script startup before any events arrive.
 - **Session label from cwd** – Session UUIDs are not human-readable; `notify.ts` derives a `label` from the last path segment of `cwd` (the project directory) and sends it with every event. The stage stores this on first session creation and uses it for figure names and log text. `CwdChanged` events update the label live.
 - **Permission watchdog** – `PermissionRequest` fires after `PreToolUse`; the stage uses a `permissionPending` flag to hold the `waiting` state. A 15-second watchdog transitions to `thinking` automatically when PostToolUse never arrives (user denied or dismissed).
@@ -189,17 +238,19 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 ## Future Features
 
 - [x] **Tool success/failure** – Green flash / red shake on PostToolUse result; driven by `is_error` in tool response
-- [x] **Agent hierarchy** – SVG overlay draws dashed lines from Claude to each spawned agent; updates on spawn and clears after agents fade out
 - [x] **Token counter** – Gauge in status bar fills relative to 200k context window; reads token usage from Stop hook transcript file
 - [x] **Hook helper script** – `src/hook/notify.ts` with `buildEvent` / `sendEvent` exports; compiled to `out/hooks/notify.js` and auto-deployed to `~/.claude/claude-stage-hook/notify.js` on activation
 - [x] **Pixel-art sprites** – Real sprite assets: LPC Character Bases (Human Male for Claude, Orc Male for Agent, CC-BY-SA 3.0) and CraftPix blue alien for User (OGA-BY 3.0)
-- [x] **Multi-session support** – Up to 3 concurrent Claude instances, each assigned its own vertical band
+- [x] **Multi-session support** – Unlimited concurrent Claude instances, force-directed layout with ~25% gap
 - [x] **Force-directed agent layout** – Agents spread out naturally using pairwise repulsion + centre attraction physics
+- [x] **Force-directed Claude layout** – Claudes also use ForceLayout (repulsion=400); instances re-settle whenever one is added or removed
+- [x] **Agent-follows-Claude** – When Claudes reposition, `translateTo` carries each Claude's entire agent cluster with it
 - [x] **Settings UI** – Port config, theme, figure density; ⚙ button in status bar
 - [x] **Event log** – Compact 20-entry panel + ⊞ full-screen overlay with 500-entry buffer; overlay wraps long lines
 - [x] **Session labels** – Display name from `cwd` last segment; updates live on `CwdChanged`
 - [x] **Trim sessions** – ⊘ button keeps only the most-recently-active session and clears logs
 - [x] **All 26 hooks** – Full coverage of every Claude Code hook type: session, tool, permissions, agents, compaction, MCP elicitation, file/dir, config, worktrees, team/tasks
+- [x] **Dev tools panel** – Backtick-toggle panel to spawn/remove Claudes and agents without live hooks; routes through the real event system
 - [ ] **Camera pan** – Stage scrolls/pans as agents spread out
 - [ ] **History replay** – Record session events and replay them
 - [ ] **Side panel mode** – Run as VS Code sidebar view, not full panel

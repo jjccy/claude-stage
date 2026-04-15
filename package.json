@@ -2,7 +2,7 @@
   "name": "claude-stage",
   "displayName": "Claude Stage",
   "description": "Visualize Claude Code's thinking and actions as animated 2.5D figures",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "jjccy",
   "engines": {
     "vscode": "^1.85.0"
