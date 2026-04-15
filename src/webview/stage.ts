@@ -74,6 +74,7 @@
     permissionPending:    boolean;   // permission_prompt arrived; tool_use must not override "waiting"
     toolWatchdog?:        number;    // timeout id — resets stuck "running" figure if tool_result never arrives
     pendingAgentFigures:  string[];  // figure IDs waiting to be matched to a SubagentStart agent UUID
+    stopped:              boolean;   // received a Stop event — session finished its last turn cleanly
   }
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@
   const AGENT_ZONE_HW = 15 * figureDensity;
   const AGENT_ZONE_HH = 30 * figureDensity;
 
-  const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
+  const INACTIVITY_MS = 2 * 60 * 1000; // 2 minutes
 
   const TOOL_EMOJI: Record<string, string> = {
     Read: '📄', Write: '✍️', Edit: '✏️', Bash: '⚡', Grep: '🔍',
@@ -281,7 +282,7 @@
         AGENT_ZONE_HW,
         AGENT_ZONE_HH,
       );
-      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout, permissionPending: false, pendingAgentFigures: [] });
+      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout, permissionPending: false, pendingAgentFigures: [], stopped: false });
     }
     return sessions.get(sessionId)!;
   }
@@ -309,7 +310,7 @@
       .filter(([, s]) => now - s.lastActive > INACTIVITY_MS)
       .map(([id]) => id);
     expired.forEach(id => {
-      addLog(`TIMEOUT: ${sessionLabel(id)} removed (10 min idle)`, 'error');
+      addLog(`TIMEOUT: ${sessionLabel(id)} removed (2 min idle)`, 'error');
       removeSession(id);
     });
   }, 60_000);
@@ -675,6 +676,22 @@
       }
 
       case 'session_start': {
+        // A new session_id arrives on every CLI invocation (including resume).
+        // Sweep same-label sessions that are clearly dead:
+        //   - stopped=true: cleanly finished last turn, safe to replace unconditionally
+        //   - idle >5 min: probably a killed process (can't use 30s because config_change
+        //     floods all sessions right before session_start, resetting lastActive)
+        const STALE_MS = 5 * 60 * 1000;
+        const nowMs = Date.now();
+        sessions.forEach((s, id) => {
+          if (id !== sid && s.label === session.label) {
+            if (s.stopped || nowMs - s.lastActive > STALE_MS) {
+              addLog(`STALE: removed old ${s.label} session`, 'error');
+              removeSession(id);
+            }
+          }
+        });
+
         const src      = event.text ?? 'startup';
         const greeting = src === 'resume'  ? '↩ Resumed'
                        : src === 'compact' ? '📦 Compacted'
@@ -745,16 +762,18 @@
       }
 
       case 'subagent_stop': {
-        // SubagentStop: agent finished. Look up the figure by UUID and show the result.
+        // SubagentStop: agent finished. Look up the figure by UUID, show result, then remove.
         const typeLabel = event.agentType ? ` (${event.agentType})` : '';
         const snippet   = event.text ? truncate(event.text, 80) : '—';
         addLog(`AGENT DONE [${sLabel}]${typeLabel}: ${snippet}`, 'agent');
         if (event.agentId) {
           const figId = agentIdToFigureId.get(event.agentId);
           const fig   = figId ? figures.get(figId) : null;
-          if (fig) {
+          if (fig && figId) {
             setState(fig, 'idle');
             showBubble(fig, `✓ ${truncate(event.text ?? 'done', 30)}`);
+            agentIdToFigureId.delete(event.agentId);
+            setTimeout(() => removeFigureAnimated(figId), 1800);
           }
         }
         break;
@@ -774,33 +793,12 @@
       }
 
       case 'agent_done': {
-        // An Agent tool call completed — show result briefly, then remove the figure.
+        // PostToolUse for the Agent tool — parent Claude reacts to the result.
+        // The agent figure was already shown its result and scheduled for removal
+        // by subagent_stop (which has the accurate UUID).  Claude just reacts.
         const success = event.success !== false;
         flashFigure(claude, success);
-        setState(claude, 'thinking');   // parent is still processing the result
-        // Match by task prompt first (accurate when agents complete out of order),
-        // fall back to the first non-idle agent for this session.
-        let doneId = '';
-        if (event.text) {
-          figures.forEach((fig, id) => {
-            if (!doneId && id.startsWith(`agent:${sid}:`) && fig.prompt === event.text && fig.state !== 'idle') {
-              doneId = id;
-            }
-          });
-        }
-        if (!doneId) {
-          figures.forEach((fig, id) => {
-            if (!doneId && id.startsWith(`agent:${sid}:`) && fig.state !== 'idle') doneId = id;
-          });
-        }
-        if (doneId) {
-          const fig = figures.get(doneId)!;
-          setState(fig, 'idle');
-          showBubble(fig, success ? '✓' : '✗');
-          setTimeout(() => {
-            removeFigureAnimated(doneId);
-          }, 1200);
-        }
+        setState(claude, 'thinking');
         addLog(`AGENT DONE [${sLabel}]: ${success ? 'ok' : 'error'}`, 'agent');
         break;
       }
@@ -890,6 +888,7 @@
 
       case 'stop': {
         session.permissionPending = false;
+        session.stopped = true;
         if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
         setState(claude, 'idle');
 
