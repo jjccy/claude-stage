@@ -84,6 +84,7 @@ export class StagePanel {
       theme: config.get<string>('theme', 'default'),
       figureDensity: config.get<number>('figureDensity', 1),
       spritesBaseUrl: spritesUri.toString(),
+      artStyle: config.get<string>('artStyle', 'pixel'),
     });
     return template
       .replace(/\{\{cspSource\}\}/g, this.panel.webview.cspSource)

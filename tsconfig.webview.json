@@ -9,6 +9,5 @@
     "noImplicitAny": true,
     "skipLibCheck": true
   },
-  "include": ["src/webview/**/*.ts"],
-  "exclude": ["node_modules"]
+  "files": ["src/webview/stage.ts"]
 }

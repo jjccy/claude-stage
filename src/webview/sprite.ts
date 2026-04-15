@@ -1,4 +1,16 @@
-// ── Sprite rendering ──────────────────────────────────────────────────────────
+/// <reference path="./sprites/index.ts" />
+
+// ── Shared renderer interface ─────────────────────────────────────────────────
+
+interface IRenderer {
+  readonly canvasW: number;
+  readonly canvasH: number;
+  draw(ctx: CanvasRenderingContext2D, state: string, frameIdx: number): void;
+  ms(state: string): number;
+  frameCount(state: string): number;
+}
+
+// ── PNG sprite rendering ──────────────────────────────────────────────────────
 // Supports two animation formats:
 //   "sheet" – LPC 64×64 sprite sheets (Claude, Agent) rendered at 2×
 //   "seq"   – individual PNG sequences (User / blue alien)
@@ -54,7 +66,10 @@ const ROLE_ANIMS: Record<string, Record<string, AnimDef>> = {
     writing:   { kind: 'sheet', file: 'Slash.png',  row: DIR_EAST,  frames: 6,  ms: 90   },
     running:   { kind: 'sheet', file: 'Thrust.png', row: DIR_EAST,  frames: 8,  ms: 55   },
     spawning:  { kind: 'sheet', file: 'Cast.png',   row: DIR_EAST,  frames: 7,  ms: 90   },
-    waiting:   { kind: 'sheet', file: 'Hurt.png',   row: DIR_NORTH, frames: 6,  ms: 220  },
+    waiting:     { kind: 'sheet', file: 'Hurt.png',   row: DIR_NORTH, frames: 6,  ms: 220  },
+    celebrating: { kind: 'sheet', file: 'Cast.png',   row: DIR_EAST,  frames: 7,  ms: 90   },
+    reading:     { kind: 'sheet', file: 'Walk.png',   row: DIR_WEST,  frames: 8,  ms: 130  },
+    error:       { kind: 'sheet', file: 'Hurt.png',   row: DIR_NORTH, frames: 6,  ms: 150  },
   },
 
   // User — blue alien individual PNG sequence, centered in canvas
@@ -96,7 +111,9 @@ const ROLE_ANIMS: Record<string, Record<string, AnimDef>> = {
 
 // ── SpriteRenderer ────────────────────────────────────────────────────────────
 
-class SpriteRenderer {
+class SpriteRenderer implements IRenderer {
+  readonly canvasW = LPC_FRAME_SIZE * SCALE;   // 128
+  readonly canvasH = LPC_FRAME_SIZE * SCALE;   // 128
   private sheets:    Map<string, HTMLImageElement> = new Map(); // sheet key → img
   private seqImages: Map<string, HTMLImageElement> = new Map(); // filename → img
   private anims:     Record<string, AnimDef>;
@@ -158,4 +175,173 @@ class SpriteRenderer {
                     def.dx, def.dy, def.dw, def.dh);
     }
   }
+}
+
+// ── Pixel-art renderer — 3/4-perspective hand-coded sprites ──────────────────
+// Grid: 24 × 40 pixels @ SCALE 3 → 72 × 120 px canvas
+// Frame data lives in src/webview/sprites/ — assembled into PIXEL_RAW by
+// sprites/index.ts which is referenced below.
+//
+// Shading convention (shared across all characters):
+//   .  transparent
+//   O  outline (#111111)
+//
+// Each character uses its own letter set — see media/pixel-sprites/<role>/_character.md
+
+const PIXEL_SCALE = 3;
+const PIXEL_SW    = 24;
+const PIXEL_SH    = 40;
+
+// ─── Alien (user) palette ────────────────────────────────────────────────────
+//  g  green skin front   G  green skin top    s  green skin shadow
+//  m  magenta eye        M  magenta highlight
+//  b  teal body front    B  teal body top      d  teal body shadow
+//  a  antenna light      A  antenna tip bright
+const ALIEN_PAL: Record<string, string> = {
+  '.': '', O: '#111111',
+  g: '#80E080', G: '#AAFFAA', s: '#447744',
+  m: '#FF44FF', M: '#FF99FF',
+  b: '#44CCCC', B: '#99FFFF', d: '#228888',
+  a: '#BBFFBB', A: '#CCFFCC',
+  e: '#FFFF44', E: '#FFFFFF',   // hover glow
+};
+
+// ─── Miner (agent) palette ───────────────────────────────────────────────────
+//  k  tan skin front     K  tan skin top       w  tan skin shadow
+//  e  dark eye
+//  h  helmet front       H  helmet top         q  helmet shadow
+//  b  orange gear front  B  gear top highlight  d  gear shadow
+//  p  pickaxe silver     P  silver highlight    r  pickaxe shadow
+//  n  wooden handle      N  handle highlight
+const MINER_PAL: Record<string, string> = {
+  '.': '', O: '#111111',
+  k: '#C89060', K: '#E8B888', w: '#8B6040',
+  e: '#2B2B2B',
+  h: '#8B4513', H: '#CC7733', q: '#552200',
+  b: '#FF8800', B: '#FFCC44', d: '#993300',
+  p: '#CCCCCC', P: '#FFFFFF', r: '#888888',
+  n: '#AA7744', N: '#CC9966',
+};
+
+// ─── Robot (claude) palette ──────────────────────────────────────────────────
+//  c  metal body front   C  metal top          D  metal shadow
+//  l  LED eye cyan       L  LED highlight
+//  a  gold antenna       A  gold top
+//  x  grey joint         X  joint top
+//  f  flash/spark white
+const ROBOT_PAL: Record<string, string> = {
+  '.': '', O: '#111111',
+  c: '#5588CC', C: '#88AAFF', D: '#2244AA',
+  l: '#00FFFF', L: '#CCFFFF',
+  a: '#FFCC00', A: '#FFEE88',
+  x: '#888888', X: '#AAAAAA',
+  f: '#FFFFFF',
+};
+
+// ─── Timing (ms per frame per role/state) ────────────────────────────────────
+
+const PIXEL_MS: Record<string, Record<string, number>> = {
+  user:  { idle: 600, thinking: 450, waiting: 800 },
+  agent: { idle: 650, thinking: 500, working: 175, waiting: 900, spawning: 280 },
+  claude: {
+    idle: 480, thinking: 380, searching: 230, writing: 190, running: 150,
+    spawning: 220, waiting: 650, celebrating: 180, reading: 320, error: 140,
+  },
+};
+
+// ─── PixelSpriteRenderer ─────────────────────────────────────────────────────
+
+type Pixel = string | null;
+
+function parsePixelFrame(rows: string[], pal: Record<string, string>): Pixel[][] {
+  return rows.map(row => {
+    const r = row.padEnd(PIXEL_SW, '.').slice(0, PIXEL_SW);
+    return r.split('').map(ch => {
+      const color = pal[ch];
+      return (color === undefined || color === '') ? null : color;
+    });
+  });
+}
+
+class PixelSpriteRenderer implements IRenderer {
+  readonly canvasW = PIXEL_SW * PIXEL_SCALE;  // 72
+  readonly canvasH = PIXEL_SH * PIXEL_SCALE;  // 120
+
+  private frames: Map<string, Pixel[][]> = new Map();
+  private role: string;
+
+  constructor(role: string) {
+    this.role = role;
+    const pal = role === 'user' ? ALIEN_PAL : role === 'agent' ? MINER_PAL : ROBOT_PAL;
+    const prefix = role + '_';
+    for (const key of Object.keys(PIXEL_RAW)) {
+      if (key.startsWith(prefix)) {
+        const stateKey = key.slice(prefix.length); // e.g. "idle_0"
+        this.frames.set(stateKey, parsePixelFrame(PIXEL_RAW[key], pal));
+      }
+    }
+  }
+
+  frameCount(state: string): number {
+    // Count how many frames exist for this state
+    let n = 0;
+    while (this.frames.has(`${state}_${n}`)) n++;
+    if (n > 0) return n;
+    // Agent fallback: searching/writing/running → working
+    if (this.role === 'agent') {
+      n = 0;
+      while (this.frames.has(`working_${n}`)) n++;
+      if (n > 0) return n;
+    }
+    // Universal fallback: idle
+    n = 0;
+    while (this.frames.has(`idle_${n}`)) n++;
+    return Math.max(n, 1);
+  }
+
+  ms(state: string): number {
+    const roleMs = PIXEL_MS[this.role];
+    if (roleMs) {
+      if (roleMs[state] !== undefined) return roleMs[state];
+      // Agent working fallback
+      if (this.role === 'agent' && roleMs['working'] !== undefined) return roleMs['working'];
+    }
+    return 500;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, state: string, frameIdx: number): void {
+    ctx.clearRect(0, 0, this.canvasW, this.canvasH);
+
+    // Resolve actual state key
+    let resolvedState = state;
+    let count = this.frameCount(state);
+    if (count === 0 || !this.frames.has(`${state}_0`)) {
+      resolvedState = (this.role === 'agent') ? 'working' : 'idle';
+      count = this.frameCount(resolvedState);
+    }
+
+    const key = `${resolvedState}_${frameIdx % Math.max(count, 1)}`;
+    const frame = this.frames.get(key) ?? this.frames.get('idle_0');
+    if (!frame) return;
+
+    for (let y = 0; y < frame.length; y++) {
+      const row = frame[y];
+      for (let x = 0; x < row.length; x++) {
+        const color = row[x];
+        if (color) {
+          ctx.fillStyle = color;
+          ctx.fillRect(x * PIXEL_SCALE, y * PIXEL_SCALE, PIXEL_SCALE, PIXEL_SCALE);
+        }
+      }
+    }
+  }
+}
+
+// ─── Factory ──────────────────────────────────────────────────────────────────
+
+function createSpriteRenderer(
+  role: string, artStyle: string, spritesBaseUrl: string
+): IRenderer {
+  if (artStyle === 'pixel') return new PixelSpriteRenderer(role);
+  return new SpriteRenderer(role, spritesBaseUrl);
 }

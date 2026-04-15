@@ -53,6 +53,16 @@
           ],
           "description": "Color theme for the stage"
         },
+        "claudeStage.artStyle": {
+          "type": "string",
+          "default": "pixel",
+          "enum": ["png", "pixel"],
+          "enumDescriptions": [
+            "LPC sprite sheets (default)",
+            "3/4-perspective hand-coded pixel art"
+          ],
+          "description": "Character art style for the stage"
+        },
         "claudeStage.figureDensity": {
           "type": "number",
           "default": 1,

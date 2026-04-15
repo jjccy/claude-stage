@@ -13,6 +13,7 @@
   const cfg = (window as any).__CLAUDE_STAGE_CONFIG__ ?? {};
   const figureDensity: number    = cfg.figureDensity ?? 1;
   const spritesBaseUrl: string   = cfg.spritesBaseUrl ?? '';
+  const artStyle: string         = cfg.artStyle ?? 'pixel';
   if (cfg.theme && cfg.theme !== 'default') {
     document.body.classList.add(`theme-${cfg.theme}`);
   }
@@ -29,7 +30,7 @@
     el:        HTMLElement;
     canvas:    HTMLCanvasElement;
     ctx:       CanvasRenderingContext2D;
-    renderer:  SpriteRenderer;
+    renderer:  IRenderer;
     role:      string;
     state:     string;
     frameIdx:  number;
@@ -98,7 +99,7 @@
   };
 
   const TOOL_ACTION: Record<string, string> = {
-    Read: 'thinking', Write: 'writing', Edit: 'writing', Bash: 'running',
+    Read: 'reading', Write: 'writing', Edit: 'writing', Bash: 'running',
     Grep: 'searching', Glob: 'searching', Agent: 'spawning',
     WebFetch: 'searching', WebSearch: 'searching',
   };
@@ -134,8 +135,7 @@
 
     const canvas   = document.createElement('canvas');
     canvas.className = 'sprite';
-    canvas.width   = SW * SCALE;   // 128 px
-    canvas.height  = SH * SCALE;   // 128 px
+    // Size set after renderer is created in ensureFigure
     wrap.appendChild(canvas);
 
     const shadow = document.createElement('div');
@@ -173,8 +173,10 @@
     if (!figures.has(id)) {
       const el       = buildFigure(id, role, label);
       const canvas   = el.querySelector<HTMLCanvasElement>('.sprite')!;
+      const renderer = createSpriteRenderer(role, artStyle, spritesBaseUrl);
+      canvas.width   = renderer.canvasW;
+      canvas.height  = renderer.canvasH;
       const ctx      = canvas.getContext('2d')!;
-      const renderer = new SpriteRenderer(role, spritesBaseUrl);
       placeFigure(el, slot);
       figuresLayer.appendChild(el);
       const stateEl = el.querySelector<HTMLElement>('.state-label') ?? undefined;
@@ -295,7 +297,6 @@
     removeFigureAnimated(session.claudeId);
     freeSlots.push(session.slotIndex);
     sessions.delete(sessionId);
-    setTimeout(() => updateHierarchyLines(), 600);
   }
 
   // Inactivity cleanup: every minute, remove sessions idle >10 min.
@@ -330,52 +331,6 @@
     const overlayEntries = document.getElementById('log-overlay-entries');
     if (overlayEntries) overlayEntries.innerHTML = '';
     addLog('TRIM: kept latest session, logs cleared', '');
-  }
-
-  // ── Hierarchy lines ───────────────────────────────────────────────────────
-
-  // Figures are anchored bottom-centre (translate(-50%,-100%)).
-  // Sprite centre is above the anchor by: label + shadow + gap (≈22px) + half-sprite.
-  const SPRITE_BELOW = 22; // px below sprite canvas (shadow + label + gaps)
-
-  function slotCenter(slot: Slot): { x: number; y: number } {
-    const W = figuresLayer.offsetWidth;
-    const H = figuresLayer.offsetHeight;
-    return {
-      x: (slot.x / 100) * W,
-      y: (slot.y / 100) * H - SPRITE_BELOW - (SH * SCALE) / 2,
-    };
-  }
-
-  function updateHierarchyLines(): void {
-    const svg = document.getElementById('hierarchy-svg');
-    if (!svg) return;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-    sessions.forEach((session, sessionId) => {
-      const claudeFig = figures.get(session.claudeId);
-      if (!claudeFig) return;
-
-      let hasAgents = false;
-      figures.forEach((_, id) => { if (id.startsWith(`agent:${sessionId}:`)) hasAgents = true; });
-      if (!hasAgents) return;
-
-      const cc = slotCenter(claudeFig.slot);
-
-      figures.forEach((fig, id) => {
-        if (!id.startsWith(`agent:${sessionId}:`)) return;
-        const ac   = slotCenter(fig.slot);
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', String(cc.x));
-        line.setAttribute('y1', String(cc.y));
-        line.setAttribute('x2', String(ac.x));
-        line.setAttribute('y2', String(ac.y));
-        line.setAttribute('stroke', 'rgba(63, 185, 80, 0.45)');
-        line.setAttribute('stroke-width', '1.5');
-        line.setAttribute('stroke-dasharray', '5 3');
-        svg.appendChild(line);
-      });
-    });
   }
 
   // ── Token gauge ───────────────────────────────────────────────────────────
@@ -510,7 +465,6 @@
         });
         session.agentLayout.clear();
         session.agentCount = 0;
-        setTimeout(() => updateHierarchyLines(), 600);
 
         const user = ensureFigure('user', 'user', 'User', USER_SLOT);
         setState(user, 'idle');
@@ -547,7 +501,7 @@
           const agent   = ensureFigure(agentId, 'agent', `Agent ${session.agentCount}`, positions[agentIdx]);
           if (event.params?.['prompt']) agent.prompt = String(event.params['prompt']).slice(0, 300);
           setState(agent, 'spawning');
-          setTimeout(() => { setState(agent, 'thinking'); updateHierarchyLines(); }, 600);
+          setTimeout(() => { setState(agent, 'thinking'); }, 600);
 
           showBubble(claude, `${emoji} Spawning agent`);
           setStatus(`[${sLabel}] Spawning agent #${session.agentCount}`, 'active');
@@ -588,8 +542,14 @@
         if (session.toolWatchdog !== undefined) { clearTimeout(session.toolWatchdog); session.toolWatchdog = undefined; }
         const success = event.success !== false;
         flashFigure(claude, success);
-        setState(claude, 'thinking');
         clearBubble(claude);
+        if (success) {
+          setState(claude, 'celebrating');
+          setTimeout(() => { if (claude.state === 'celebrating') setState(claude, 'idle'); }, 2000);
+        } else {
+          setState(claude, 'error');
+          setTimeout(() => { if (claude.state === 'error') setState(claude, 'thinking'); }, 1500);
+        }
         setStatus(
           success ? `[${sLabel}] Processing result...` : `[${sLabel}] Error in ${event.tool ?? 'tool'}`,
           success ? 'thinking' : 'error'
@@ -660,7 +620,6 @@
         const reason = event.text ?? 'other';
         addLog(`END [${sLabel}]: session ended (${reason})`, 'claude');
         removeSession(sid);
-        setTimeout(() => updateHierarchyLines(), 600);
         break;
       }
 
@@ -760,7 +719,6 @@
           showBubble(fig, success ? '✓' : '✗');
           setTimeout(() => {
             removeFigureAnimated(doneId);
-            setTimeout(() => updateHierarchyLines(), 600); // after fade completes
           }, 1200);
         }
         addLog(`AGENT DONE [${sLabel}]: ${success ? 'ok' : 'error'}`, 'agent');

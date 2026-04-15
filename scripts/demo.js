@@ -352,9 +352,15 @@ async function run() {
   await post({ type: 'stop', sessionId: SID_B, label: LABEL_B,
                tokens: { input: 800, output: 200 } });
   await wait(800);
-  console.log('  → Run "Claude Stage: Trim Sessions" from the command palette');
-  console.log('    (or click the ⊘ button in the stage status bar)');
-  await wait(1500);
+
+  // ── Cleanup: end both sessions ────────────────────────────────────────────
+  console.log('\n13. End both sessions');
+  await post({ type: 'session_end', sessionId: SID_A, label: LABEL_A,
+               text: 'user_exit' });
+  await wait(600);
+  await post({ type: 'session_end', sessionId: SID_B, label: LABEL_B,
+               text: 'user_exit' });
+  await wait(1200);
 
   console.log('\n─────────────────────────────────────────────────────────\n');
   console.log('Done. Run  node scripts/demo.js  again to replay.');
