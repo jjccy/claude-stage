@@ -41,19 +41,19 @@ Claude Code (hooks) ──POST──▶ EventServer (localhost:7891)
 | Event type | Hook source | Figure behaviour |
 |-----------|------------|-----------------|
 | `user_prompt` | UserPromptSubmit | User figure speaks, Claude starts thinking |
-| `tool_use` | PreToolUse | Claude animates to tool-specific pose + bubble |
-| `tool_result` | PostToolUse | Claude flashes success/error, returns to thinking |
-| `tool_failure` | PostToolUseFailure | Claude red-flashes; tool crashed / exited non-zero |
+| `tool_use` | PreToolUse | Claude animates to tool-specific pose + bubble; **if `agentId` is set, routed to that agent's sprite instead** |
+| `tool_result` | PostToolUse | Claude flashes success/error, returns to thinking; **if `agentId` is set, routed to that agent's sprite instead** |
+| `tool_failure` | PostToolUseFailure | Claude red-flashes; **if `agentId` is set, routed to agent sprite** |
 | `agent_done` | PostToolUse (tool=Agent, derived) | Agent flashes ✓/✗, goes idle, then fades |
-| `permission` | PermissionRequest hook (tool details) or Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble |
-| `permission_denied` | PermissionDenied | Claude red-flashes, 🚫 bubble, auto-mode blocked it |
+| `permission` | PermissionRequest hook (tool details) or Notification (permission_prompt / elicitation_dialog, derived) | Claude goes to `waiting` pose, ⚠️ bubble; **if `agentId` is set, routed to agent sprite** |
+| `permission_denied` | PermissionDenied | Claude red-flashes, 🚫 bubble; **if `agentId` is set, routed to agent sprite** |
 | `notification` | Notification (auth_success, other types) | Brief bubble on Claude (icon + message), 3 s timeout |
-| `session_start` | SessionStart | Claude waves 👋/↩/📦 depending on source, 2.5 s |
-| `session_end` | SessionEnd | Session figure fades and is removed from stage |
-| `stop` | Stop | Claude shows ✓ Done, token gauge updates |
+| `session_start` | SessionStart | Claude waves 👋/↩/📦 depending on source, 2.5 s; agent-owned sessions suppressed |
+| `session_end` | SessionEnd | Session figure fades and is removed from stage; agent-owned sessions suppressed |
+| `stop` | Stop | Claude shows ✓ Done, token gauge updates; agent-owned sessions suppressed |
 | `stop_failure` | StopFailure | Claude goes to `waiting` pose, ⚠️ error bubble, 5 s timeout |
-| `subagent_start` | SubagentStart | Agent type logged (agent figure already on stage from tool_use) |
-| `subagent_stop` | SubagentStop | Agent output logged; matching figure gets ✓ bubble |
+| `subagent_start` | SubagentStart | Links agent UUID to its figure (enables subsequent tool event routing); logs type |
+| `subagent_stop` | SubagentStop | Looks up agent figure by UUID, sets to idle, shows ✓ result bubble |
 | `pre_compact` | PreCompact | Claude shows 📦 Compacting bubble |
 | `post_compact` | PostCompact | 📦 Compacted bubble with before→after token counts |
 | `elicitation_result` | ElicitationResult | Permission watchdog cleared, action logged |
@@ -133,7 +133,7 @@ interface ClaudeStageEvent {
   notifType?:   string;        // notification / permission: original notification_type
   model?:       string;        // session_start: Claude model ID
   permMode?:    string;        // permission_mode ("default"|"auto"|"acceptEdits"|...)
-  agentId?:     string;        // subagent_start / subagent_stop
+  agentId?:     string;        // subagent_start / subagent_stop; also tool_use / tool_result / tool_failure / permission / permission_denied when originating from a subagent
   agentType?:   string;        // subagent_start / subagent_stop
   error?:       string;        // tool_failure: error message
   isInterrupt?: boolean;       // tool_failure: true when interrupted by user
@@ -179,6 +179,7 @@ Tests use a real temp directory (no mocking) — `setupHooks` accepts an optiona
 - **2.5D via CSS perspective** – Ground layer uses rotateX + grid to suggest isometric space without full 3D.
 - **HTTP server** – Chosen over file watching for low latency and simplicity. Hooks POST to localhost:7891.
 - **Lazy figure creation** – Figures only appear when relevant events fire, not pre-placed.
+- **Agent tool routing** – When a subagent fires PreToolUse/PostToolUse hooks, the hook data carries `agent_id`. `notify.ts` forwards this as `agentId` in `tool_use`, `tool_result`, `tool_failure`, `permission`, and `permission_denied` events. In `stage.ts`, `handleEvent` checks for `agentId` first: if a figure is mapped for that UUID (via `agentIdToFigureId`), the event is handled by `routeAgentEvent` which updates the agent sprite and returns early — Claude's sprite never sees it. The UUID→figure mapping is built when `subagent_start` fires by dequeuing from a per-session `pendingAgentFigures` queue populated when each Agent tool_use creates a figure. Agent session lifecycle events (`session_start`, `session_end`, `stop`) are suppressed to avoid phantom Claude figures.
 - **Agent lifecycle** – Agent figures spawn on Agent tool use and fade out on `stop` event.
 - **HTML template** – Panel HTML lives in `src/webview/stage.html` with `{{placeholder}}` substitution; `stagePanel.ts` reads it with `fs.readFileSync` and replaces `cspSource`, `styleUri`, `scriptUri`, and `config` at render time. Separates markup from TypeScript.
 - **Settings injection** – Current settings (theme, figureDensity) are serialised as `window.__CLAUDE_STAGE_CONFIG__` in a `<script>` block rather than passed via postMessage, so they are available synchronously at script startup before any events arrive.

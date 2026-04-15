@@ -123,6 +123,7 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
   if (type === 'tool_use') {
     event.tool   = hookData.tool_name;
     event.params = hookData.tool_input ?? {};
+    if (hookData.agent_id) event.agentId = hookData.agent_id;
 
   } else if (type === 'tool_result') {
     const toolName = hookData.tool_name;
@@ -137,6 +138,7 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
       event.tool    = toolName;
       event.success = success;
     }
+    if (hookData.agent_id) event.agentId = hookData.agent_id;
 
   } else if (type === 'tool_failure') {
     event.tool        = hookData.tool_name;
@@ -144,11 +146,13 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
     event.error       = hookData.error ?? 'Tool execution failed';
     event.isInterrupt = hookData.is_interrupt ?? false;
     event.params      = hookData.tool_input;
+    if (hookData.agent_id) event.agentId = hookData.agent_id;
 
   } else if (type === 'permission_denied') {
     event.tool    = hookData.tool_name;
     event.params  = hookData.tool_input;
     event.text    = hookData.reason ?? 'Auto mode denied';
+    if (hookData.agent_id) event.agentId = hookData.agent_id;
 
   } else if (type === 'subagent_start') {
     event.agentId   = hookData.agent_id;
@@ -172,6 +176,7 @@ export function buildEvent(type: string, hookData: HookData): ClaudeStageEvent |
     event.tool      = hookData.tool_name;
     event.params    = hookData.tool_input;
     event.notifType = 'permission_request';
+    if (hookData.agent_id) event.agentId = hookData.agent_id;
     const toolParam = hookData.tool_input
       ? String(hookData.tool_input['command'] ?? hookData.tool_input['file_path'] ?? Object.values(hookData.tool_input)[0] ?? '')
       : '';

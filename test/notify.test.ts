@@ -20,6 +20,20 @@ describe('buildEvent', () => {
       const ev = buildEvent('tool_use', { tool_name: 'Read' })!;
       expect(ev.params).toEqual({});
     });
+
+    it('forwards agent_id to agentId when present (subagent tool use)', () => {
+      const ev = buildEvent('tool_use', {
+        tool_name:  'Read',
+        tool_input: { file_path: 'src/foo.ts' },
+        agent_id:   'agent-abc123',
+      })!;
+      expect(ev.agentId).toBe('agent-abc123');
+    });
+
+    it('omits agentId when agent_id is absent (Claude tool use)', () => {
+      const ev = buildEvent('tool_use', { tool_name: 'Read' })!;
+      expect(ev.agentId).toBeUndefined();
+    });
   });
 
   describe('tool_result', () => {
@@ -68,6 +82,19 @@ describe('buildEvent', () => {
       })!;
       expect(ev.type).toBe('agent_done');
       expect(ev.success).toBe(false);
+    });
+
+    it('forwards agent_id to agentId when present (subagent result)', () => {
+      const ev = buildEvent('tool_result', {
+        tool_name: 'Grep',
+        agent_id:  'agent-xyz789',
+      })!;
+      expect(ev.agentId).toBe('agent-xyz789');
+    });
+
+    it('omits agentId when agent_id is absent', () => {
+      const ev = buildEvent('tool_result', { tool_name: 'Read' })!;
+      expect(ev.agentId).toBeUndefined();
     });
   });
 
@@ -270,6 +297,15 @@ describe('buildEvent', () => {
       const ev = buildEvent('permission_request', {})!;
       expect(ev.text).toBe('Allow tool?');
     });
+
+    it('forwards agent_id to agentId when present (agent waiting for permission)', () => {
+      const ev = buildEvent('permission_request', {
+        tool_name:  'Bash',
+        tool_input: { command: 'rm -rf tmp/' },
+        agent_id:   'agent-abc123',
+      })!;
+      expect(ev.agentId).toBe('agent-abc123');
+    });
   });
 
   describe('session_start', () => {
@@ -331,6 +367,14 @@ describe('buildEvent', () => {
       const ev = buildEvent('tool_failure', { tool_name: 'Read' })!;
       expect(ev.error).toBe('Tool execution failed');
     });
+
+    it('forwards agent_id to agentId when present (subagent failure)', () => {
+      const ev = buildEvent('tool_failure', {
+        tool_name: 'Bash',
+        agent_id:  'agent-abc123',
+      })!;
+      expect(ev.agentId).toBe('agent-abc123');
+    });
   });
 
   describe('permission_denied', () => {
@@ -349,6 +393,14 @@ describe('buildEvent', () => {
     it('falls back to generic text when reason is absent', () => {
       const ev = buildEvent('permission_denied', { tool_name: 'Bash' })!;
       expect(ev.text).toBe('Auto mode denied');
+    });
+
+    it('forwards agent_id to agentId when present', () => {
+      const ev = buildEvent('permission_denied', {
+        tool_name: 'Bash',
+        agent_id:  'agent-abc123',
+      })!;
+      expect(ev.agentId).toBe('agent-abc123');
     });
   });
 

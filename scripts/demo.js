@@ -174,7 +174,9 @@ async function run() {
 
   // ── Scene 5: Spawn three agents ───────────────────────────────────────────
   // PreToolUse fires for each Agent call; SubagentStart fires shortly after
-  // with the assigned agent_id and agent_type.
+  // with the assigned agent_id and agent_type.  Once linked via SubagentStart,
+  // the agents' own tool_use / tool_result events (carrying agentId) are routed
+  // to each agent's sprite rather than to Claude.
   console.log('\n5. Spawning three agents');
   const PROMPT_A = 'Explore and summarise the test directory';
   const PROMPT_B = 'Explore and summarise the docs directory';
@@ -202,7 +204,54 @@ async function run() {
   await wait(300);
   await post({ type: 'subagent_start', sessionId: SID_A, label: LABEL_A,
                agentId: AGENT_ID_C, agentType: 'general-purpose' });
-  await wait(1200);
+  await wait(1000);
+
+  // ── Scene 5b: Agents doing their own tool work ────────────────────────────
+  // Agent tool events carry agentId, so they are routed to the agent sprites,
+  // not to Claude.  All three agents work in parallel.
+  console.log('\n5b. Agents doing tool work (routed to agent sprites)');
+
+  // Agent A: searching through test files
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Glob', params: { pattern: 'test/**/*.ts' }, agentId: AGENT_ID_A });
+  await wait(400);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Glob', success: true, agentId: AGENT_ID_A });
+  await wait(300);
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Read', params: { file_path: 'test/auth.test.ts' }, agentId: AGENT_ID_A });
+  await wait(500);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Read', success: true, agentId: AGENT_ID_A });
+  await wait(300);
+
+  // Agent B: reading docs
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Glob', params: { pattern: 'docs/**/*.md' }, agentId: AGENT_ID_B });
+  await wait(400);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Glob', success: true, agentId: AGENT_ID_B });
+  await wait(300);
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Grep', params: { pattern: 'API' }, agentId: AGENT_ID_B });
+  await wait(500);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Grep', success: true, agentId: AGENT_ID_B });
+  await wait(300);
+
+  // Agent C: writing the migration
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Bash', params: { command: 'ls migrations/' }, agentId: AGENT_ID_C });
+  await wait(400);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Bash', success: true, agentId: AGENT_ID_C });
+  await wait(300);
+  await post({ type: 'tool_use', sessionId: SID_A, label: LABEL_A,
+               tool: 'Write', params: { file_path: 'migrations/0043_add_sessions.sql' }, agentId: AGENT_ID_C });
+  await wait(600);
+  await post({ type: 'tool_result', sessionId: SID_A, label: LABEL_A,
+               tool: 'Write', success: true, agentId: AGENT_ID_C });
+  await wait(600);
 
   // ── Scene 6: Agents complete out of order ─────────────────────────────────
   // SubagentStop carries last_assistant_message (the agent's final output).

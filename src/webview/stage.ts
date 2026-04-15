@@ -39,6 +39,7 @@
     stateEl?:  HTMLElement;   // small state indicator below the name label
     slot:      Slot;
     prompt?:   string;
+    agentId?:  string;   // UUID from SubagentStart — used to route tool events to this figure
   }
 
   interface StageEvent {
@@ -70,8 +71,9 @@
     lastActive:        number;
     slotIndex:         number;
     agentLayout:       ForceLayout;
-    permissionPending: boolean;   // permission_prompt arrived; tool_use must not override "waiting"
-    toolWatchdog?:     number;    // timeout id — resets stuck "running" figure if tool_result never arrives
+    permissionPending:    boolean;   // permission_prompt arrived; tool_use must not override "waiting"
+    toolWatchdog?:        number;    // timeout id — resets stuck "running" figure if tool_result never arrives
+    pendingAgentFigures:  string[];  // figure IDs waiting to be matched to a SubagentStart agent UUID
   }
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -113,8 +115,9 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  const figures  = new Map<string, Figure>();
-  const sessions = new Map<string, Session>();
+  const figures          = new Map<string, Figure>();
+  const sessions         = new Map<string, Session>();
+  const agentIdToFigureId = new Map<string, string>();  // agent UUID → figure id
 
   let nextSlotIndex     = 0;
   const freeSlots: number[] = [];
@@ -278,7 +281,7 @@
         AGENT_ZONE_HW,
         AGENT_ZONE_HH,
       );
-      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout, permissionPending: false });
+      sessions.set(sessionId, { claudeId, label, agentCount: 0, lastActive: Date.now(), slotIndex, agentLayout, permissionPending: false, pendingAgentFigures: [] });
     }
     return sessions.get(sessionId)!;
   }
@@ -447,9 +450,79 @@
     return first != null ? String(first) : '';
   }
 
+  // ── Agent event routing ───────────────────────────────────────────────────
+
+  /** Handle tool events that originated inside a subagent, routing to its figure.
+   *  Returns true if the event was handled, false if no figure is mapped yet. */
+  function routeAgentEvent(event: StageEvent): boolean {
+    const figId = event.agentId ? agentIdToFigureId.get(event.agentId) : undefined;
+    if (!figId) return false;
+    const fig = figures.get(figId);
+    if (!fig) return false;
+
+    switch (event.type) {
+      case 'tool_use': {
+        const tool     = event.tool ?? 'Unknown';
+        const emoji    = TOOL_EMOJI[tool]  ?? TOOL_EMOJI['default'];
+        const action   = TOOL_ACTION[tool] ?? 'running';
+        const param    = getToolParam(tool, event.params);
+        const paramLog = getToolParamLog(tool, event.params);
+        setState(fig, action);
+        showBubble(fig, `${emoji} ${param}`);
+        addLog(`AGENT TOOL: ${tool} ${paramLog}`, 'agent');
+        break;
+      }
+      case 'tool_result': {
+        const success = event.success !== false;
+        flashFigure(fig, success);
+        clearBubble(fig);
+        if (success) {
+          setState(fig, 'thinking');
+        } else {
+          setState(fig, 'error');
+          setTimeout(() => { if (fig.state === 'error') setState(fig, 'thinking'); }, 1500);
+        }
+        addLog(`${success ? 'DONE' : 'ERR'} AGENT: ${event.tool ?? 'tool'}`, success ? 'agent' : 'error');
+        break;
+      }
+      case 'tool_failure': {
+        flashFigure(fig, false);
+        setState(fig, 'error');
+        setTimeout(() => { if (fig.state === 'error') setState(fig, 'thinking'); }, 1500);
+        addLog(`FAIL AGENT: ${event.tool ?? 'tool'} — ${event.error ?? ''}`, 'error');
+        break;
+      }
+      case 'permission': {
+        setState(fig, 'waiting');
+        showBubble(fig, `⚠️ ${truncate(event.text ?? 'Permission needed', 40)}`);
+        addLog(`PERM AGENT [${event.tool ?? 'tool'}]: ${event.text ?? ''}`, 'error');
+        break;
+      }
+      case 'permission_denied': {
+        flashFigure(fig, false);
+        setState(fig, 'thinking');
+        showBubble(fig, `🚫 ${truncate(event.tool ?? 'tool', 20)}`);
+        setTimeout(() => clearBubble(fig), 3000);
+        addLog(`DENIED AGENT [${event.tool ?? 'tool'}]: ${event.text ?? ''}`, 'error');
+        break;
+      }
+      default:
+        return false;
+    }
+    return true;
+  }
+
   // ── Event handler ─────────────────────────────────────────────────────────
 
   function handleEvent(event: StageEvent): void {
+    // Events from subagent sessions carry agent_id. Route tool/permission events
+    // to the agent's figure; suppress session lifecycle to avoid ghost Claude figures.
+    if (event.agentId) {
+      if (routeAgentEvent(event)) return;
+      if (event.type === 'session_start' || event.type === 'session_end' ||
+          event.type === 'stop' || event.type === 'stop_failure') return;
+    }
+
     const sid     = event.sessionId ?? 'default';
     const session = getOrCreateSession(sid, event.label);
     touchSession(session);
@@ -500,6 +573,7 @@
           const agentId = `agent:${sid}:${agentIdx}`;
           const agent   = ensureFigure(agentId, 'agent', `Agent ${session.agentCount}`, positions[agentIdx]);
           if (event.params?.['prompt']) agent.prompt = String(event.params['prompt']).slice(0, 300);
+          session.pendingAgentFigures.push(agentId);
           setState(agent, 'spawning');
           setTimeout(() => { setState(agent, 'thinking'); }, 600);
 
@@ -655,27 +729,33 @@
       }
 
       case 'subagent_start': {
-        // SubagentStart gives us agent_id + agent_type at spawn time.
-        // The agent figure was already created by PreToolUse for "Agent".
-        // Use this event to update the figure label with the agent type.
+        // SubagentStart gives us the agent UUID. Match it to the earliest unmatched
+        // agent figure in this session so tool events can be routed to the right sprite.
         const typeLabel = event.agentType ? ` (${event.agentType})` : '';
+        if (event.agentId && session.pendingAgentFigures.length > 0) {
+          const figId = session.pendingAgentFigures.shift()!;
+          const fig   = figures.get(figId);
+          if (fig) {
+            fig.agentId = event.agentId;
+            agentIdToFigureId.set(event.agentId, figId);
+          }
+        }
         addLog(`AGENT [${sLabel}]: spawned${typeLabel} id=${event.agentId?.slice(0, 8) ?? '?'}`, 'agent');
         break;
       }
 
       case 'subagent_stop': {
-        // SubagentStop: agent finished, carries last_assistant_message — the agent's output.
-        // Match by agentId if possible; otherwise fall back to prompt-matching (agent_done).
+        // SubagentStop: agent finished. Look up the figure by UUID and show the result.
         const typeLabel = event.agentType ? ` (${event.agentType})` : '';
         const snippet   = event.text ? truncate(event.text, 80) : '—';
         addLog(`AGENT DONE [${sLabel}]${typeLabel}: ${snippet}`, 'agent');
-        // Show the summary in the matching agent's bubble if it's still on stage.
         if (event.agentId) {
-          figures.forEach((fig, id) => {
-            if (id.startsWith(`agent:${sid}:`) && fig.prompt?.includes(event.agentId ?? '__none__')) {
-              showBubble(fig, `✓ ${truncate(event.text ?? 'done', 30)}`);
-            }
-          });
+          const figId = agentIdToFigureId.get(event.agentId);
+          const fig   = figId ? figures.get(figId) : null;
+          if (fig) {
+            setState(fig, 'idle');
+            showBubble(fig, `✓ ${truncate(event.text ?? 'done', 30)}`);
+          }
         }
         break;
       }
